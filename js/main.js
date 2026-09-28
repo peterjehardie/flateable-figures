@@ -20,7 +20,7 @@ const app = {
   doc: createDoc(),
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
   params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true },
-  prm: { pressure: 1, tension: 1, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1 },
+  prm: { pressure: 1, tension: 1, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2 },
   steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
   shading: 'clay', css: {}, bgImage: null,
@@ -658,6 +658,7 @@ const SLIDERS = {
   anchor: { get: () => app.prm.anchor, set: (v) => { app.prm.anchor = v; wake(); } },
   shrink: { get: () => app.params.shrink, set: (v) => { app.params.shrink = v; scheduleModel(200); } },
   armDepth: { get: () => app.prm.armDepth, set: (v) => { app.prm.armDepth = v; wake(); } },
+  profile: { get: () => (app.prm.profile ? app.prm.profile : 12), set: (v) => { app.prm.profile = v >= 12 ? 0 : v; wake(); }, show: (v) => (v >= 12 ? 'off (box)' : v <= 2.05 ? 'ellipse' : fmt(v, 1)) },
   steps: { get: () => app.steps, set: (v) => { app.steps = v; } },
   brush: { get: () => app.brushPx, set: (v) => { app.brushPx = v; }, show: (v) => v + ' px' },
 };

@@ -420,7 +420,41 @@ export function makeMeasure(doc, masks, frame) {
     };
     return { zHeel, zToe, len, at };
   };
-  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top };
+  // Rounded profile: for every height (trunk, legs) and every point along the arms, the box the
+  // drawings allow (front width x side depth, or front thickness x arm depth). The balloon is kept
+  // inside the rounded shape (a superellipse) that just fits that box: it touches the front outline
+  // at its sides and the side outline front and back, but does not fill the box's corners.
+  const NB = 512;
+  const prof = { trunk: new Float64Array(NB * 4), 1: new Float64Array(NB * 4), [-1]: new Float64Array(NB * 4), arm1: new Float64Array(NB * 4), 'arm-1': new Float64Array(NB * 4) };
+  for (let b = 0; b < NB; b++) {
+    const y = ((b + 0.5) / NB) * H;
+    const t = trunk(y);
+    prof.trunk.set([t.cx, t.rx, t.cz, t.rz], 4 * b);
+  }
+  for (const sign of [1, -1]) {
+    let expX = sign * trunk(W.crotch + 0.02 * H).rx * 0.5;
+    for (let b = NB - 1; b >= 0; b--) {
+      const y = ((b + 0.5) / NB) * H;
+      if (y > W.crotch) { prof[sign].set(prof.trunk.subarray(4 * b, 4 * b + 4), 4 * b); continue; }
+      const l = leg(sign, y, expX);
+      expX = l.cx;
+      prof[sign].set([l.cx, l.rx, l.cz, l.rz], 4 * b);
+    }
+    const x0 = W.shoulderX, x1 = W.tipX;
+    for (let b = 0; b < NB; b++) {
+      const x = x0 + ((b + 0.5) / NB) * (x1 - x0);
+      const a = arm(sign, x);
+      prof['arm' + sign].set([a.cy, a.ry, a.cz, a.rz], 4 * b);
+    }
+  }
+  const profileAt = (kind, key) => {
+    let arr, f;
+    if (kind === 'arm1' || kind === 'arm-1') { arr = prof[kind]; f = (Math.abs(key) - W.shoulderX) / (W.tipX - W.shoulderX); }
+    else { arr = kind === 'trunk' ? prof.trunk : prof[kind]; f = key / H; }
+    const b = Math.max(0, Math.min(NB - 1, Math.floor(f * NB)));
+    return arr.subarray(4 * b, 4 * b + 4);
+  };
+  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top, profileAt };
 }
 
 // A symmetric stand-in measure with the same stations: used to find mirror pairs.

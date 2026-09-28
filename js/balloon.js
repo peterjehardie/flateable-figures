@@ -184,6 +184,23 @@ export class Balloon {
         if (c === 3 && x < 0) x = 0;
         if (c === 4 && x > 0) x = 0;
       }
+      // rounded profile (superellipse of exponent prm.profile inside the drawings' box)
+      const pe = prm.profile;
+      if (pe && !this.ext[i]) {
+        let pr, u, v;
+        if (c === 1 || c === 2) {
+          pr = M.profileAt(c === 1 ? 'arm1' : 'arm-1', x);
+          u = (y - pr[0]) / pr[1]; v = (z - pr[2]) / pr[3];
+        } else {
+          pr = M.profileAt(c === 3 ? 1 : c === 4 ? -1 : 'trunk', y);
+          u = (x - pr[0]) / pr[1]; v = (z - pr[2]) / pr[3];
+        }
+        const s = Math.pow(Math.pow(Math.abs(u), pe) + Math.pow(Math.abs(v), pe), 1 / pe);
+        if (s > 1 && isFinite(s)) {
+          if (c === 1 || c === 2) { y = pr[0] + (y - pr[0]) / s; z = pr[2] + (z - pr[2]) / s; }
+          else { x = pr[0] + (x - pr[0]) / s; z = pr[2] + (z - pr[2]) / s; }
+        }
+      }
       if (y < 0) y = 0;
       P[3 * i] = x; P[3 * i + 1] = y; P[3 * i + 2] = z;
     }

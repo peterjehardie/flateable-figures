@@ -44,3 +44,8 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 - **Balloon on small parts.** Fingers burst: pressure used the mean edge, which on long thin tubes is set by the far-apart loops. Now uses min(mean, 2 × shortest). Fingers and toes also sit a few mm apart, so hands and feet get a slow, gentle fit. The foot and toe loops had depth anchors that fought the hull once the foot settled shorter; removed there.
 - **Inflation** now only runs from the Inflate button and stops when it settles.
 - **Open question from the user:** SVG sheet versus drawing directly in locked orthographic views of the 3D scene.
+
+## 2026-09-28 — rounded profile by default
+
+- The user saw boxy cross-sections. Cause: the balloon was only held by the two drawings, so pressure filled the corners of the box they allow (front width × side depth), which is the visual hull. Silhouette fill read 100% because corners don't show in either view.
+- Added the rounded profile as a constraint: per height (trunk, each leg) and per point along the arms, a table of that box; each vertex is kept inside the superellipse that fits it (exponent 2.2 by default; 2 = ellipse; the far end of the slider switches it off). It touches the outlines at their extremes, so the silhouettes still fill (99/99%). Hands and feet are left to the top view. Cross-section plots at chest, waist, hip, thigh and calf confirm boxes before, rounded profiles now.
