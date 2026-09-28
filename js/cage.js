@@ -212,14 +212,79 @@ export function buildCage(M, P) {
     };
     for (const [a0, b0] of edges) { inner(a0); inner(b0); }
     for (const f of fids) for (let i = 0; i < 4; i++) { const v = quads[4 * f + i]; if (border.has(v)) quads[4 * f + i] = border.get(v); }
-    for (const [a0, b0] of edges) quad(a0, b0, border.get(b0), border.get(a0), part);
-    // the new loop, in order round the border
+    const quadOf = new Map();
+    for (const [a0, b0] of edges) { quadOf.set(a0, quads.length / 4); quad(a0, b0, border.get(b0), border.get(a0), part); }
+    // the new loop, in order round the border, starting at a corner of the block (a border vertex
+    // on a single face of it)
+    const inBlock = new Map();
+    for (const f of fids) for (let i = 0; i < 4; i++) { const w = quads[4 * f + i]; inBlock.set(w, (inBlock.get(w) || 0) + 1); }
     const next = new Map(edges.map(([a0, b0]) => [a0, b0]));
-    const ring = [];
-    let v = edges[0][0];
-    for (let g = 0; g < edges.length && v !== undefined; g++) { ring.push(border.get(v)); v = next.get(v); if (v === edges[0][0]) break; }
+    const start = (edges.find(([a0]) => inBlock.get(border.get(a0)) === 1) || edges[0])[0];
+    const ring = [], outer = [], ringQuads = [];
+    let v = start;
+    for (let g = 0; g < edges.length && v !== undefined; g++) { ring.push(border.get(v)); outer.push(v); ringQuads.push(quadOf.get(v)); v = next.get(v); if (v === start) break; }
     if (name) loops.push({ name, verts: ring, station: true, axis: -1 });
+    ring.outer = outer; ring.quads = ringQuads;
     return ring;
+  };
+
+  // Twice the density inside an inset loop: every face inside is split in four, and the loop's own
+  // ring of quads makes the step between densities, two quads into three with no new vertices
+  // (a 5-pole outside, a 3-pole inside). All quads, still one closed mesh.
+  const refineInside = (ring, seedFaces) => {
+    const n = ring.length;
+    if (n % 2) return;
+    const key = (a, b) => (a < b ? a * 2097152 + b : b * 2097152 + a);
+    const ringQ = new Set(ring.quads);
+    // faces inside the loop: flood from the seeds across shared edges, stopping at the ring
+    const eFaces = new Map();
+    for (let f = 0; f < quads.length / 4; f++) for (let i = 0; i < 4; i++) {
+      const k2 = key(quads[4 * f + i], quads[4 * f + ((i + 1) % 4)]);
+      let arr = eFaces.get(k2); if (!arr) { arr = []; eFaces.set(k2, arr); } arr.push(f);
+    }
+    const inside = new Set(), stack = [...seedFaces];
+    while (stack.length) {
+      const f = stack.pop();
+      if (inside.has(f) || ringQ.has(f)) continue;
+      inside.add(f);
+      for (let i = 0; i < 4; i++) for (const g of eFaces.get(key(quads[4 * f + i], quads[4 * f + ((i + 1) % 4)]))) if (!inside.has(g) && !ringQ.has(g)) stack.push(g);
+    }
+    const mid = new Map();
+    const midOf = (a, b) => {
+      const k2 = key(a, b);
+      if (!mid.has(k2)) { const pa = P3(a), pb = P3(b); mid.set(k2, addV((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2, (pa[2] + pb[2]) / 2, -1, 0, (rref[a] + rref[b]) / 2)); }
+      return mid.get(k2);
+    };
+    for (const f of inside) {
+      const [a0, b0, c0, d0] = quads.slice(4 * f, 4 * f + 4), part = fpart[f];
+      const pa = P3(a0), pb = P3(b0), pc = P3(c0), pd = P3(d0);
+      const C = addV((pa[0] + pb[0] + pc[0] + pd[0]) / 4, (pa[1] + pb[1] + pc[1] + pd[1]) / 4, (pa[2] + pb[2] + pc[2] + pd[2]) / 4, -1, 0, (rref[a0] + rref[b0] + rref[c0] + rref[d0]) / 4);
+      const ab = midOf(a0, b0), bc = midOf(b0, c0), cd = midOf(c0, d0), da = midOf(d0, a0);
+      quads.splice(4 * f, 4, a0, ab, C, da);
+      quad(ab, b0, bc, C, part); quad(C, bc, c0, cd, part); quad(da, C, cd, d0, part);
+    }
+    // the ring: pairs of quads (o0 o1 i1 i0)(o1 o2 i2 i1) -> (o0 o1 m1 i0)(o1 o2 i2 m2)(o1 m2 i1 m1)
+    for (let k = 0; k < n; k += 2) {
+      const i0 = ring[k], i1 = ring[k + 1], i2 = ring[(k + 2) % n];
+      const o0 = ring.outer[k], o1 = ring.outer[k + 1], o2 = ring.outer[(k + 2) % n];
+      const m1 = mid.get(key(i0, i1)), m2 = mid.get(key(i1, i2));
+      if (m1 === undefined || m2 === undefined) continue;
+      const q1 = ring.quads[k], q2 = ring.quads[k + 1], part = fpart[q1];
+      quads.splice(4 * q1, 4, o0, o1, m1, i0);
+      quads.splice(4 * q2, 4, o1, o2, i2, m2);
+      quad(o1, m2, i1, m1, part);
+    }
+    // loops through the refined area pick up the new midpoints
+    for (const L of loops) {
+      const out = [];
+      for (let i = 0; i < L.verts.length; i++) {
+        const a0 = L.verts[i], b0 = L.verts[(i + 1) % L.verts.length];
+        out.push(a0);
+        const m = mid.get(key(a0, b0));
+        if (m !== undefined) out.push(m);
+      }
+      L.verts = out;
+    }
   };
 
   // ---------------- trunk ----------------
@@ -275,7 +340,7 @@ export function buildCage(M, P) {
     // one extra column each side, so eyes and mouth sit inside the face loop
     const wide = (sg) => Array.from({ length: nf + 1 }, (_, q) => (sg > 0 ? q : N - 1 - q));
     for (const j of rowsFace) for (const i of [...wide(1), ...wide(-1)]) block.push(faceIds[j][i]);
-    inset(block, 0.12, 4, 'face');
+    const faceRing = inset(block, 0.12, 4, 'face');
     // eyes need a face of their own each side with the nose bridge between (16+ round)
     if (N >= 16) for (const sg of [1, -1]) {
       const eye = [faceIds[headRow0 + FACE.eyeLo][front(sg)[nf - 1]]];
@@ -285,6 +350,7 @@ export function buildCage(M, P) {
     const mouth = [faceIds[headRow0 + FACE.mouthLo][0], faceIds[headRow0 + FACE.mouthLo][N - 1]];
     inset(mouth, 0.25, 4, 'mouth');
     inset(mouth, 0.35, 4, 'lips');
+    if (P.faceRefine) refineInside(faceRing, block);
   }
   trunkYs.forEach((r, j) => {
     if (j > jA && j < jA + a) return;

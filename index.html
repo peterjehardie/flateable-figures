@@ -275,6 +275,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
         <div class="group">
           <h3>Face</h3>
           <label class="toggle"><input type="checkbox" id="face" checked>face loops (a loop round the face, two round each eye, two round the mouth)</label>
+          <label class="toggle"><input type="checkbox" id="faceRefine" checked>twice the density inside the face loop (the loop's ring steps between densities)</label>
           <p class="hint">Head rings sit at Loomis's face heights: mouth, nose base, eyes, brow. The loops are insets of face blocks. Eyes need 16 or more vertices round each ring.</p>
         </div>
         <div class="group">
@@ -305,6 +306,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <div class="slider"><label for="steps">Steps per frame</label><span class="val" id="steps-val"></span><input type="range" id="steps" min="1" max="30" step="1" value="6"></div>
           <label class="toggle"><input type="checkbox" id="constrain" checked>keep the balloon inside both drawings</label>
           <label class="toggle"><input type="checkbox" id="symmetry" checked>mirror left and right</label>
+          <label class="toggle"><input type="checkbox" id="faceDetail" checked>then work the face in finer steps (eyes, brows, nose, lips from the face features)</label>
         </div>
         <div class="group">
           <h3>Fit to the drawings</h3>

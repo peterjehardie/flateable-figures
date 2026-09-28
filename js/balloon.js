@@ -52,6 +52,49 @@ export class Balloon {
     this.iter = 0;
   }
 
+  // Detail pass: only `face.region` moves (the rest is held), in smaller steps, and the face is
+  // pulled onto its relief (depth over the rounded head) and its loops onto the drawn shapes.
+  startDetail(face) {
+    const P = this.P, n = this.n;
+    // the face was only carried along so far: lay it out on the face it is aiming for
+    if (face.inner && face.layout) for (const v of face.inner) { const p = face.layout(v); P[3 * v] = p[0]; P[3 * v + 1] = p[1]; P[3 * v + 2] = p[2]; }
+    const inR = new Uint8Array(n);
+    for (const v of face.region) inR[v] = 1;
+    const lt = new Float64Array(2 * n).fill(NaN);
+    for (const L of face.loopTargets) {
+      let cx = 0, cy = 0;
+      for (const v of L.verts) { cx += P[3 * v]; cy += P[3 * v + 1]; }
+      cx /= L.verts.length; cy /= L.verts.length;
+      const ang = L.shape.map(([x, y]) => Math.atan2(y - L.cy, x - L.cx));
+      for (const v of L.verts) {
+        const a = Math.atan2(P[3 * v + 1] - cy, P[3 * v] - cx);
+        let best = 0, bd = Infinity;
+        for (let k = 0; k < ang.length; k++) { let d = Math.abs(ang[k] - a); if (d > Math.PI) d = 2 * Math.PI - d; if (d < bd) { bd = d; best = k; } }
+        lt[2 * v] = L.shape[best][0]; lt[2 * v + 1] = L.shape[best][1];
+      }
+    }
+    this.detail = { face, inR, lt, hold: Float64Array.from(P), iter: 0 };
+    this.lastMove = Infinity;
+  }
+
+  stopDetail() { this.detail = null; }
+
+  // Points carried along during the body pass: each step their movement is filled in from their
+  // neighbours' (a smooth blend of how the surrounding loop moves), so small quads keep their shape.
+  setCarried(verts) {
+    this.carried = verts && verts.length ? verts : null;
+    this.carriedMask = null;
+    if (this.carried) { this.carriedMask = new Uint8Array(this.n); for (const v of verts) this.carriedMask[v] = 1; this.Dfill = new Float64Array(3 * this.n); }
+  }
+
+  // how much of a head vertex is "face": 1 in the middle of the front, easing to 0 at its sides
+  faceWeight(x, y, z) {
+    const pr = this.ctx.measure.profileAt('trunk', y);
+    if (z <= pr[2]) return 0;
+    const u = Math.abs(x - pr[0]) / pr[1];
+    return u < 0.55 ? 1 : u < 0.9 ? 0.5 + 0.5 * Math.cos(((u - 0.55) / 0.35) * Math.PI) : 0;
+  }
+
   setModifiers(pm, tm, axis, aval) {
     this.pm = pm; this.tm = tm;
     if (axis) { this.axis = axis; this.aval = aval; }
@@ -78,6 +121,7 @@ export class Balloon {
     const H = this.ctx.H;
     const rref = this.mesh.rref;
     this.computeNormals();
+    const det = this.detail;
     const stepLen = 0.0022 * H;
     if (!this.prev) { this.prev = new Float64Array(3 * n); this.Lap = new Float64Array(3 * n); this.E2 = new Float64Array(n); }
     this.prev.set(P);
@@ -111,6 +155,13 @@ export class Balloon {
       const sp = this.profileS(P[3 * i], P[3 * i + 1], P[3 * i + 2], this.cls[i], prm);
       const reach = sp < 0 ? 1 : sp < 0.95 ? 1 : sp < 0.995 ? (0.995 - sp) / 0.045 : 0;
       PD[i] = prm.pressure * this.pm[i] * stepLen * reach;
+      // detail pass: pressure still holds the head out (without it, tension draws the face in
+      // from the sides), but stops where a face point already stands at or past its relief
+      if (det && det.inR[i]) {
+        const x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2];
+        const w = this.faceWeight(x, y, z);
+        if (w > 0 && z > det.face.baseZ(x, y) + det.face.relief(x, y)) PD[i] *= 1 - w;
+      }
     }
     // Smooth the push over neighbours so neighbouring vertices move together: small quads (eye and
     // mouth loops, finger webs) travel with their surroundings instead of being overrun and folded.
@@ -152,7 +203,28 @@ export class Balloon {
         const pull = prm.anchor * (this.aval[i] - cur);
         if (ax === 0) dx += pull; else if (ax === 1) dy += pull; else dz += pull;
       }
+      if (det && det.inR[i]) {
+        const fc = det.face;
+        // the face (front of the head) is pulled to its relief; eye and mouth loops to their shapes
+        const w = this.faceWeight(px, py, pz);
+        if (w > 0) dz += 0.2 * w * (fc.baseZ(px, py) + fc.relief(px, py) - pz);
+        const tx0 = det.lt[2 * i];
+        if (tx0 === tx0) { dx += 0.2 * (tx0 - px); dy += 0.2 * (det.lt[2 * i + 1] - py); }
+        // finer steps: every force scaled alike, so the balance (what it settles on) is unchanged
+        dx *= 0.4; dy *= 0.4; dz *= 0.4;
+      }
       D[3 * i] = dx; D[3 * i + 1] = dy; D[3 * i + 2] = dz;
+    }
+    if (this.carried && !det) {
+      const cm = this.carriedMask, Df = this.Dfill;
+      for (let it = 0; it < 40; it++) for (const i of this.carried) {
+        let sx = 0, sy = 0, sz = 0;
+        const k0 = off[i], k1 = off[i + 1];
+        for (let k = k0; k < k1; k++) { const j = nb[k], S = cm[j] ? Df : D; sx += S[3 * j]; sy += S[3 * j + 1]; sz += S[3 * j + 2]; }
+        const c = k1 - k0;
+        Df[3 * i] = sx / c; Df[3 * i + 1] = sy / c; Df[3 * i + 2] = sz / c;
+      }
+      for (const i of this.carried) { D[3 * i] = Df[3 * i]; D[3 * i + 1] = Df[3 * i + 1]; D[3 * i + 2] = Df[3 * i + 2]; }
     }
     for (let i = 0; i < 3 * n; i++) P[i] += D[i];
     if (prm.constrain) { this.constrain(prm); this.constrain(prm); }
@@ -161,11 +233,13 @@ export class Balloon {
       const i = pin.v;
       for (let c = 0; c < 3; c++) P[3 * i + c] += 0.5 * (pin.p[c] - P[3 * i + c]);
     }
+    if (det) { for (let i = 0; i < n; i++) if (!det.inR[i]) { P[3 * i] = det.hold[3 * i]; P[3 * i + 1] = det.hold[3 * i + 1]; P[3 * i + 2] = det.hold[3 * i + 2]; } det.iter++; }
     // net movement after the hull has pushed back: what "settled" is judged on
     // judged on the body: toe tips resting on the floor keep a harmless shimmer
+    // (in the detail pass: on the part being worked)
     let moved = 0, cnt = 0;
     for (let i = 0; i < n; i++) {
-      if (this.ext[i]) continue;
+      if (det ? !det.inR[i] : this.ext[i]) continue;
       moved += Math.abs(P[3 * i] - this.prev[3 * i]) + Math.abs(P[3 * i + 1] - this.prev[3 * i + 1]) + Math.abs(P[3 * i + 2] - this.prev[3 * i + 2]);
       cnt++;
     }
@@ -223,7 +297,7 @@ export class Balloon {
       }
       // rounded profile (superellipse of exponent prm.profile inside the drawings' box)
       const pe = prm.profile;
-      if (pe && !this.ext[i]) {
+      if (pe && !this.ext[i] && !(this.detail && this.detail.inR[i])) {
         let pr, u, v;
         if (c === 1 || c === 2) {
           pr = M.profileAt(c === 1 ? 'arm1' : 'arm-1', x);

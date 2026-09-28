@@ -10,6 +10,7 @@ import { computeFit, maskImage } from './fit.js';
 import { View2D, penPathOpts } from './view2d.js';
 import { View3D } from './view3d.js';
 import { PARTS } from './cage.js';
+import { buildFace } from './face.js';
 import { toOBJ, tagsJSON, makeZip, saveFile } from './exporter.js';
 import { bboxOf, parseColor, colorName, toHex } from './util.js';
 
@@ -19,8 +20,8 @@ const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '–');
 const app = {
   doc: createDoc(),
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
-  params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true },
-  prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2 },
+  params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true, faceRefine: true },
+  prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2, faceDetail: true },
   steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
   shading: 'clay', css: {}, bgImage: null,
@@ -76,6 +77,8 @@ function rebuildModel() {
   const t0 = performance.now();
   app.model = buildModel(doc, app.masks, app.frame, app.params);
   app.sim = app.model.sim;
+  app.face = app.params.face ? buildFace(doc, app.frame, app.model.measure, app.sim.mesh, { ...app.prm, shrink: app.params.shrink }) : null;
+  if (app.face && app.prm.faceDetail) app.sim.setCarried(app.face.inner);
   app.buildMs = performance.now() - t0;
   app.v3.setMesh(app.sim.mesh, app.sim.P);
   app.sim.computeNormals();
@@ -194,8 +197,18 @@ function loop(t) {
     app.v3.update(sim.P, sim.N);
     frameNo++;
     if (frameNo % 12 === 0) updateTags();
-    if (sim.lastMove < 2.5e-5 && sim.iter > 60) { if (++app.stillFrames > 30) { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); } }
-    else app.stillFrames = 0;
+    if (sim.detail) {
+      // detail pass on the face: judged on the head only, with a cap
+      const d = sim.detail;
+      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face refined'); } }
+      else app.stillFrames = 0;
+    } else if (sim.lastMove < 2.5e-5 && sim.iter > 60) {
+      if (++app.stillFrames > 30) {
+        app.stillFrames = 0;
+        if (app.prm.faceDetail && app.face) { sim.startDetail(app.face); toast('Body settled: now working the face in finer steps'); }
+        else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); }
+      }
+    } else app.stillFrames = 0;
     if (t - lastFit > 450) { lastFit = t; refreshFit(); }
     app.v2.dirty = true;
   }
@@ -220,7 +233,7 @@ function statusLine() {
   const f = app.fit || {};
   const cover = f.front ? `front <b>${fmt(100 * f.front.cover, 0)}%</b>` : '';
   const side = f.side ? ` side <b>${fmt(100 * f.side.cover, 0)}%</b>` : '';
-  const state = app.running ? 'inflating' : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
+  const state = app.running ? (sim.detail ? 'refining the face' : 'inflating') : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
   setStatus(`<b>${sim.mesh.quads.length / 4}</b> quads · ${cover}${side} · ${state}`, true);
 }
 function setStatus(s, html) { if (html) $('status').innerHTML = s; else $('status').textContent = s; }
@@ -672,8 +685,10 @@ function syncControls() {
   $('jointLoops').checked = app.params.jointLoops;
   $('digits').checked = app.params.digits;
   $('face').checked = app.params.face;
+  $('faceRefine').checked = app.params.faceRefine;
   $('constrain').checked = app.prm.constrain;
   $('symmetry').checked = app.prm.symmetry;
+  $('faceDetail').checked = app.prm.faceDetail;
   for (const b of $('ringN').querySelectorAll('button')) b.setAttribute('aria-pressed', String(+b.dataset.n === app.params.N));
 }
 function fmtSlider(v) { return Number.isInteger(v) ? String(v) : v.toFixed(2); }
@@ -685,8 +700,10 @@ function bindControls() {
   $('jointLoops').onchange = (e) => { app.params.jointLoops = e.target.checked; scheduleModel(); };
   $('digits').onchange = (e) => { app.params.digits = e.target.checked; scheduleModel(); };
   $('face').onchange = (e) => { app.params.face = e.target.checked; scheduleModel(); };
+  $('faceRefine').onchange = (e) => { app.params.faceRefine = e.target.checked; scheduleModel(); };
   $('constrain').onchange = (e) => { app.prm.constrain = e.target.checked; wake(); };
   $('symmetry').onchange = (e) => { app.prm.symmetry = e.target.checked; wake(); };
+  $('faceDetail').onchange = (e) => { app.prm.faceDetail = e.target.checked; if (app.sim) { if (!e.target.checked) app.sim.stopDetail(); app.sim.setCarried(e.target.checked && app.face ? app.face.inner : null); } wake(); };
   $('ringN').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; app.params.N = +b.dataset.n; syncControls(); scheduleModel(10); };
   $('btn-restart').onclick = () => { rebuildModel(); setRunning(true); };
   $('btn-run').onclick = () => setRunning(!app.running);
