@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Flateable Figures</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #e9ecef; --panel: #fbfbfa; --panel-2: #f2f3f4; --ink: #1c2230; --muted: #5b6474; --line: #d3d8df;
+  --accent: #0e7d89; --accent-soft: #d6ecee; --accent-ink: #ffffff; --select: #f0a020; --mark: #b87400;
+  --paper: #f7f6f2; --viewport: #e1e4e8; --grid-a: #9aa1ab; --grid-b: #c9ced6; --mesh-line: #3a4252;
+  --over: #d9463b; --under: #2f6fe0;
+  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #111419; --panel: #181c22; --panel-2: #1f242b; --ink: #e5e8ec; --muted: #98a1ae; --line: #2c333d;
+    --accent: #3cb7c3; --accent-soft: #173a3f; --accent-ink: #0b1215; --select: #f0a020; --mark: #e4a52a;
+    --paper: #1b1f25; --viewport: #15181d; --grid-a: #3a414b; --grid-b: #272c34; --mesh-line: #b9c1cd;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111419; --panel: #181c22; --panel-2: #1f242b; --ink: #e5e8ec; --muted: #98a1ae; --line: #2c333d;
+  --accent: #3cb7c3; --accent-soft: #173a3f; --accent-ink: #0b1215; --select: #f0a020; --mark: #e4a52a;
+  --paper: #1b1f25; --viewport: #15181d; --grid-a: #3a414b; --grid-b: #272c34; --mesh-line: #b9c1cd;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font); }
+button, input, select { font: inherit; color: inherit; }
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+header.bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.brand { display: flex; align-items: baseline; gap: 10px; margin-right: 8px; }
+.brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+.brand span { color: var(--muted); font-size: 12px; }
+.bar .spacer { flex: 1; }
+.status { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.status b { color: var(--ink); font-weight: 500; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: var(--r); padding: 5px 10px; cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn:focus-visible, .seg button:focus-visible, .tab:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.work { min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) 312px; }
+.pane { position: relative; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto 1fr; border-right: 1px solid var(--line); }
+.pane .tools { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
+.pane .stage { position: relative; min-height: 0; overflow: hidden; }
+.pane canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.pane-2d .stage { background: var(--paper); }
+.pane-3d .stage { background: var(--viewport); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+.seg button { border: 0; background: var(--panel); padding: 4px 9px; cursor: pointer; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 500; box-shadow: inset 0 -2px 0 var(--accent); }
+.tools .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-left: 4px; }
+.toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--muted); font-size: 12px; user-select: none; }
+.toggle input { accent-color: var(--accent); margin: 0; }
+.overlay-note { position: absolute; left: 10px; bottom: 8px; font: 11px var(--mono); color: var(--muted); pointer-events: none; background: color-mix(in srgb, var(--paper) 80%, transparent); padding: 2px 6px; border-radius: 4px; }
+.pane-3d .overlay-note { background: color-mix(in srgb, var(--viewport) 80%, transparent); }
+.legend { position: absolute; right: 10px; bottom: 8px; display: flex; gap: 10px; font: 11px var(--mono); color: var(--muted); pointer-events: none; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.drop { position: absolute; inset: 10px; border: 2px dashed var(--accent); border-radius: 10px; display: none; align-items: center; justify-content: center; font-size: 15px; color: var(--accent); background: color-mix(in srgb, var(--paper) 85%, transparent); z-index: 2; }
+.drop.on { display: flex; }
+aside.panel { min-height: 0; overflow: auto; background: var(--panel); display: flex; flex-direction: column; }
+.tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.tab { flex: 1 0 auto; border: 0; background: none; padding: 9px 8px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; font-size: 12px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); font-weight: 500; }
+.tabpanel { padding: 12px 14px 24px; display: flex; flex-direction: column; gap: 14px; }
+.tabpanel h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 500; }
+.group { display: flex; flex-direction: column; gap: 8px; }
+.row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; }
+.row label { color: var(--ink); }
+.row .val { font: 12px var(--mono); color: var(--muted); min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+.slider { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+.slider input[type=range] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); margin: 0; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; max-width: 60ch; }
+.hint b { color: var(--ink); font-weight: 500; }
+.stats { font: 12px/1.6 var(--mono); color: var(--muted); display: grid; grid-template-columns: 1fr auto; gap: 0 10px; font-variant-numeric: tabular-nums; }
+.stats b { color: var(--ink); font-weight: 500; text-align: right; }
+input[type=number], input[type=text], select { border: 1px solid var(--line); background: var(--panel-2); border-radius: 5px; padding: 3px 6px; min-width: 0; }
+input[type=number] { width: 76px; font-family: var(--mono); font-size: 12px; }
+.st-table { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 8px; align-items: center; font-size: 12px; }
+.st-table .hu { font: 11px var(--mono); color: var(--muted); text-align: right; min-width: 46px; }
+.chip { display: inline-block; font: 11px var(--mono); padding: 1px 6px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.chip.ok { color: var(--accent); border-color: var(--accent); }
+.chip.warn { color: var(--over); border-color: var(--over); }
+.tag-list { display: flex; flex-direction: column; gap: 6px; }
+.tag-item { border: 1px solid var(--line); border-radius: var(--r); padding: 7px 8px; display: flex; flex-direction: column; gap: 6px; }
+.tag-item.active { border-color: var(--accent); }
+.tag-head { display: grid; grid-template-columns: auto 1fr auto auto; gap: 8px; align-items: center; }
+.swatch { width: 14px; height: 14px; border-radius: 3px; border: 1px solid color-mix(in srgb, var(--ink) 25%, transparent); }
+.tag-head input[type=text] { width: 100%; }
+.tag-body { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
+.tag-body .slider { font-size: 12px; }
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.sel-card { border: 1px solid var(--line); border-radius: var(--r); padding: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
+.lm-list { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.lm-item { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; padding: 3px 6px; border-radius: 5px; }
+.lm-item.sel { background: var(--accent-soft); }
+.lm-item input { width: 100%; }
+kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--panel-2); }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--panel); padding: 7px 14px; border-radius: 99px; font-size: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 10; }
+.toast.on { opacity: 1; }
+@media (max-width: 1180px) {
+  .work { grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: 1fr 1fr; }
+  .pane-2d { grid-column: 1; grid-row: 1; border-bottom: 1px solid var(--line); }
+  .pane-3d { grid-column: 1; grid-row: 2; }
+  aside.panel { grid-column: 2; grid-row: 1 / span 2; }
+}
+@media (max-width: 720px) {
+  .app { height: auto; }
+  .work { grid-template-columns: 1fr; grid-template-rows: none; }
+  .pane { height: 62vh; border-right: 0; border-bottom: 1px solid var(--line); }
+  .pane-2d, .pane-3d, aside.panel { grid-column: 1; grid-row: auto; }
+  aside.panel { overflow: visible; }
+  header.bar { padding: 8px 16px; }
+  .brand span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <div class="brand"><h1>Flateable Figures</h1><span>two drawings in, one inflated quad mesh out</span></div>
+    <button class="btn" id="btn-open">Open drawing…</button>
+    <select id="sel-sample" aria-label="Load a sample drawing">
+      <option value="">Samples…</option>
+      <option value="features">Your sketch: feature regions</option>
+      <option value="part-boxes">Your sketch: part boxes</option>
+    </select>
+    <button class="btn" id="btn-save">Save project</button>
+    <button class="btn primary" id="btn-export">Export mesh</button>
+    <div class="spacer"></div>
+    <div class="status" id="status">loading…</div>
+    <input type="file" id="file" accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" hidden>
+  </header>
+  <div class="work">
+    <section class="pane pane-2d" aria-label="Drawings">
+      <div class="tools">
+        <div class="seg" id="tools2d" role="group" aria-label="Drawing tool">
+          <button data-tool="select" aria-pressed="true" title="Select strokes, drag guide lines (V)">Select</button>
+          <button data-tool="pen" aria-pressed="false" title="Draw a stroke (P)">Pen</button>
+          <button data-tool="erase" aria-pressed="false" title="Click a stroke to delete it (E)">Erase</button>
+          <button data-tool="fill" aria-pressed="false" title="Click an enclosed area of the side view to make it the arm cross-section (F)">Fill</button>
+          <button data-tool="landmark" aria-pressed="false" title="Place a point in both views (L)">Landmark</button>
+        </div>
+        <input type="color" id="pen-color" value="#1b1f27" title="Pen colour: black draws outline, colours draw feature tags" aria-label="Pen colour">
+        <span class="label">Show</span>
+        <label class="toggle"><input type="checkbox" data-show2d="hull" checked>hull</label>
+        <label class="toggle"><input type="checkbox" data-show2d="fit" checked>fit</label>
+        <label class="toggle"><input type="checkbox" data-show2d="stations" checked>stations</label>
+        <label class="toggle"><input type="checkbox" data-show2d="heads">head units</label>
+        <label class="toggle"><input type="checkbox" data-show2d="mesh" checked>loops</label>
+        <label class="toggle"><input type="checkbox" data-show2d="parts">part boxes</label>
+        <label class="toggle"><input type="checkbox" data-show2d="bg" checked>image</label>
+        <button class="btn" id="btn-fit2d" title="Fit the sheet to the pane">Fit</button>
+      </div>
+      <div class="stage" id="stage2d">
+        <canvas id="c2d"></canvas>
+        <div class="drop" id="drop">Drop an SVG or image to load it</div>
+        <div class="overlay-note" id="note2d"></div>
+        <div class="legend"><span><i style="background:var(--over)"></i>balloon outside</span><span><i style="background:var(--under)"></i>not filled yet</span></div>
+      </div>
+    </section>
+    <section class="pane pane-3d" aria-label="3D model">
+      <div class="tools">
+        <div class="seg" role="group" aria-label="Camera">
+          <button data-cam="front">Front</button><button data-cam="side">Side</button><button data-cam="back">Back</button><button data-cam="three">¾</button>
+        </div>
+        <label class="toggle"><input type="checkbox" id="ortho">flat</label>
+        <div class="seg" id="shading" role="group" aria-label="Shading">
+          <button data-shade="clay" aria-pressed="true">Clay</button><button data-shade="parts" aria-pressed="false">Parts</button><button data-shade="tags" aria-pressed="false">Tags</button><button data-shade="poles" aria-pressed="false">Poles</button>
+        </div>
+        <label class="toggle"><input type="checkbox" data-show3d="wire" checked>quads</label>
+        <label class="toggle"><input type="checkbox" data-show3d="cage" checked>cage</label>
+        <label class="toggle"><input type="checkbox" data-show3d="loops" checked>loops</label>
+        <label class="toggle"><input type="checkbox" data-show3d="drawings" checked>drawings</label>
+        <button class="btn" id="btn-run" aria-pressed="true">Pause</button>
+      </div>
+      <div class="stage" id="stage3d">
+        <canvas id="c3d"></canvas>
+        <div class="overlay-note" id="note3d"></div>
+      </div>
+    </section>
+    <aside class="panel" aria-label="Settings">
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" data-tab="drawing" aria-selected="true">Drawing</button>
+        <button class="tab" role="tab" data-tab="stations" aria-selected="false">Stations</button>
+        <button class="tab" role="tab" data-tab="topology" aria-selected="false">Topology</button>
+        <button class="tab" role="tab" data-tab="balloon" aria-selected="false">Balloon</button>
+        <button class="tab" role="tab" data-tab="tags" aria-selected="false">Tags</button>
+      </div>
+
+      <div class="tabpanel" data-panel="drawing">
+        <div class="group">
+          <h3>Selected stroke</h3>
+          <div id="sel-card"></div>
+        </div>
+        <div class="group">
+          <h3>Outline</h3>
+          <div class="slider"><label for="gap">Close gaps up to</label><span class="val" id="gap-val"></span><input type="range" id="gap" min="0.2" max="3" step="0.1" value="1.2"></div>
+          <p class="hint">Strokes are drawn thick by this amount before the inside is filled, so small breaks in an outline still close. If the tinted hull leaks into the background, raise it or draw the missing bit with the pen.</p>
+          <div class="row"><label for="height">Figure height (m)</label><input type="number" id="height" min="0.3" max="4" step="0.01" value="1.80"></div>
+          <div class="row"><label>Side view faces</label><div class="seg" id="facing"><button data-facing="left">left</button><button data-facing="right">right</button></div></div>
+          <div class="row"><label for="import-mode">Open files as</label><select id="import-mode"><option value="both">both views in one file</option><option value="front">front view only</option><option value="side">side view only</option></select></div>
+        </div>
+        <div class="group">
+          <h3>Arm cross-section</h3>
+          <div class="row"><span id="section-state"></span><button class="btn" id="btn-clear-section">Clear</button></div>
+          <p class="hint">In a T-pose the side view sees each arm end-on. With <b>Fill</b>, click inside that shape in the side view and the arms take its depth, tapering with the front view.</p>
+        </div>
+        <div class="group">
+          <h3>Strokes</h3>
+          <div class="stats" id="stroke-stats"></div>
+          <p class="hint"><b>Outline</b> strokes build the hull. <b>Features</b> (coloured) become tags. <b>Height lines</b> and <b>notes</b> are ignored by the maths. A <b>cross-section</b> in the side view (like the arm circle at the shoulder) sets the arm's depth.</p>
+        </div>
+        <div class="group">
+          <h3>Keys</h3>
+          <p class="hint"><kbd>V</kbd> select · <kbd>P</kbd> pen · <kbd>E</kbd> erase · <kbd>F</kbd> fill · <kbd>L</kbd> landmark · <kbd>Del</kbd> delete stroke · <kbd>Space</kbd>+drag or right-drag to pan · wheel to zoom</p>
+        </div>
+      </div>
+
+      <div class="tabpanel" data-panel="stations" hidden>
+        <div class="group">
+          <h3>Proportions</h3>
+          <div class="row"><label for="canon">Canon</label><select id="canon"><option value="6">6 heads (stylised)</option><option value="7">7 heads</option><option value="7.5">7.5 heads (realistic)</option><option value="8" selected>8 heads (ideal)</option><option value="9">9 heads (heroic)</option></select></div>
+          <div class="btn-row"><button class="btn" id="btn-fit-st">Fit stations to drawing</button><button class="btn" id="btn-canon-st">Use canon</button></div>
+          <label class="toggle"><input type="checkbox" id="st-auto" checked>refit stations whenever the drawing changes</label>
+          <div class="stats" id="heads-readout"></div>
+        </div>
+        <div class="group">
+          <h3>Heights (shared by both views)</h3>
+          <div class="st-table" id="st-table"></div>
+          <p class="hint">Drag any station line in either view. Each station places an edge loop, and joints get a band of extra loops.</p>
+        </div>
+        <div class="group">
+          <h3>Arm stations (front view, across)</h3>
+          <div class="st-table" id="arm-table"></div>
+        </div>
+        <div class="group">
+          <h3>Calibration</h3>
+          <div class="stats" id="cal-readout"></div>
+          <button class="btn" id="btn-cal-reset">Reset to automatic</button>
+        </div>
+        <div class="group">
+          <h3>Landmarks</h3>
+          <p class="hint">With <b>Landmark</b>, click a point in the front view, then the same point in the side view. The pair fixes one 3D point, and the nearest vertex is pinned to it.</p>
+          <div class="lm-list" id="lm-list"></div>
+          <label class="toggle"><input type="checkbox" id="pins-on" checked>pin the mesh to landmarks</label>
+        </div>
+      </div>
+
+      <div class="tabpanel" data-panel="topology" hidden>
+        <div class="group">
+          <h3>Cage</h3>
+          <div class="row"><label>Vertices around each ring</label><div class="seg" id="ringN"><button data-n="8">8</button><button data-n="16">16</button><button data-n="24">24</button></div></div>
+          <div class="slider"><label for="rings">Loops per segment</label><span class="val" id="rings-val"></span><input type="range" id="rings" min="0" max="5" step="1" value="2"></div>
+          <div class="slider"><label for="headRings">Loops in the head</label><span class="val" id="headRings-val"></span><input type="range" id="headRings" min="0" max="5" step="1" value="2"></div>
+          <div class="slider"><label for="handRings">Loops in hands</label><span class="val" id="handRings-val"></span><input type="range" id="handRings" min="0" max="4" step="1" value="1"></div>
+          <div class="slider"><label for="footRings">Loops in feet</label><span class="val" id="footRings-val"></span><input type="range" id="footRings" min="0" max="4" step="1" value="1"></div>
+          <label class="toggle"><input type="checkbox" id="jointLoops" checked>joint bands at knees, elbows and wrists</label>
+          <div class="slider"><label for="level">Subdivision level</label><span class="val" id="level-val"></span><input type="range" id="level" min="0" max="3" step="1" value="2"></div>
+        </div>
+        <div class="group">
+          <h3>Layout</h3>
+          <div class="stats" id="topo-stats"></div>
+          <p class="hint">A <b>pole</b> is a vertex where 3 or 5 edges meet instead of 4. Loops can only turn, split or merge at poles, so pole placement is the topology. This cage puts them at the armpit and shoulder corners, at both ends of the crotch chain, and at the corners of the head, hand and foot caps. Shade by <b>Poles</b> to see them.</p>
+          <p class="hint">Subdivision splits every quad into four without moving the poles, so the flow of the cage is kept at every level.</p>
+        </div>
+      </div>
+
+      <div class="tabpanel" data-panel="balloon" hidden>
+        <div class="group">
+          <h3>Inflation</h3>
+          <div class="btn-row"><button class="btn primary" id="btn-restart">Deflate and reinflate</button></div>
+          <div class="slider"><label for="pressure">Pressure</label><span class="val" id="pressure-val"></span><input type="range" id="pressure" min="0" max="3" step="0.05" value="1"></div>
+          <div class="slider"><label for="tension">Surface tension (roundness)</label><span class="val" id="tension-val"></span><input type="range" id="tension" min="0" max="3" step="0.05" value="1"></div>
+          <p class="hint">Where the balloon is free, it curves with a radius of about tension ÷ pressure × the part's own radius. Low tension fills the hull into its boxy corners, high tension keeps limbs round.</p>
+          <div class="slider"><label for="relax">Even out quads</label><span class="val" id="relax-val"></span><input type="range" id="relax" min="0" max="0.8" step="0.02" value="0.3"></div>
+          <div class="slider"><label for="anchor">Hold loops on stations</label><span class="val" id="anchor-val"></span><input type="range" id="anchor" min="0" max="0.6" step="0.01" value="0.15"></div>
+          <div class="slider"><label for="shrink">Start size</label><span class="val" id="shrink-val"></span><input type="range" id="shrink" min="0.15" max="1" step="0.05" value="0.5"></div>
+          <div class="slider"><label for="armDepth">Arm depth without a cross-section</label><span class="val" id="armDepth-val"></span><input type="range" id="armDepth" min="0.4" max="1.6" step="0.05" value="1"></div>
+          <div class="slider"><label for="steps">Steps per frame</label><span class="val" id="steps-val"></span><input type="range" id="steps" min="1" max="30" step="1" value="6"></div>
+          <label class="toggle"><input type="checkbox" id="constrain" checked>keep the balloon inside both drawings</label>
+          <label class="toggle"><input type="checkbox" id="symmetry" checked>mirror left and right</label>
+        </div>
+        <div class="group">
+          <h3>Fit to the drawings</h3>
+          <div class="stats" id="fit-stats"></div>
+        </div>
+      </div>
+
+      <div class="tabpanel" data-panel="tags" hidden>
+        <div class="group">
+          <h3>Tag groups</h3>
+          <p class="hint">Coloured strokes become tags on the surface that faces their view. Each group can change the balloon locally, or pull the nearest edge loop onto its open lines.</p>
+          <div class="tag-list" id="tag-list"></div>
+          <div class="btn-row"><button class="btn" id="btn-newtag">New group</button></div>
+        </div>
+        <div class="group">
+          <h3>Paint on the model</h3>
+          <label class="toggle"><input type="checkbox" id="paint-on">paint in the 3D view (Alt-drag still orbits)</label>
+          <div class="row"><label for="paint-group">Group</label><select id="paint-group"></select></div>
+          <div class="slider"><label for="brush">Brush size</label><span class="val" id="brush-val"></span><input type="range" id="brush" min="4" max="80" step="1" value="22"></div>
+          <label class="toggle"><input type="checkbox" id="paint-erase">erase (or hold Shift)</label>
+          <p class="hint">Paint is stored as positions on the body, not vertex numbers, so it survives any change of topology.</p>
+        </div>
+        <div class="group">
+          <h3>Export</h3>
+          <div class="row"><label for="exp-level">Resolution</label><select id="exp-level"></select></div>
+          <div class="btn-row"><button class="btn primary" id="btn-export2">Download OBJ + tags (.zip)</button><button class="btn" id="btn-copy-obj">Copy OBJ</button></div>
+          <p class="hint">Lower levels take the cage's own vertices off the inflated surface, so a level-0 export is a low-poly retopology of the balloon with the same loops.</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
