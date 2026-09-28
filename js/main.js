@@ -11,6 +11,7 @@ import { View2D, penPathOpts } from './view2d.js';
 import { View3D } from './view3d.js';
 import { PARTS } from './cage.js';
 import { buildFace } from './face.js';
+import { buildDigits } from './digits.js';
 import { toOBJ, tagsJSON, makeZip, saveFile } from './exporter.js';
 import { bboxOf, parseColor, colorName, toHex } from './util.js';
 
@@ -79,6 +80,7 @@ function rebuildModel() {
   app.sim = app.model.sim;
   app.face = app.params.face ? buildFace(doc, app.frame, app.model.measure, app.sim.mesh, { ...app.prm, shrink: app.params.shrink }) : null;
   if (app.face && app.prm.faceDetail) app.sim.setCarried(app.face.inner);
+  app.digits = app.params.digits ? buildDigits(doc, app.frame, app.model.measure, app.sim.mesh) : null;
   app.buildMs = performance.now() - t0;
   app.v3.setMesh(app.sim.mesh, app.sim.P);
   app.sim.computeNormals();
@@ -200,12 +202,12 @@ function loop(t) {
     if (sim.detail) {
       // detail pass on the face: judged on the head only, with a cap
       const d = sim.detail;
-      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face refined'); } }
+      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); } }
       else app.stillFrames = 0;
     } else if (sim.lastMove < 2.5e-5 && sim.iter > 60) {
       if (++app.stillFrames > 30) {
         app.stillFrames = 0;
-        if (app.prm.faceDetail && app.face) { sim.startDetail(app.face); toast('Body settled: now working the face in finer steps'); }
+        if (app.prm.faceDetail && (app.face || app.digits)) { sim.startDetail(app.face, app.digits); toast('Body settled: now working the face, hands and feet in finer steps'); }
         else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); }
       }
     } else app.stillFrames = 0;
@@ -233,7 +235,7 @@ function statusLine() {
   const f = app.fit || {};
   const cover = f.front ? `front <b>${fmt(100 * f.front.cover, 0)}%</b>` : '';
   const side = f.side ? ` side <b>${fmt(100 * f.side.cover, 0)}%</b>` : '';
-  const state = app.running ? (sim.detail ? 'refining the face' : 'inflating') : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
+  const state = app.running ? (sim.detail ? 'refining face, hands, feet' : 'inflating') : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
   setStatus(`<b>${sim.mesh.quads.length / 4}</b> quads · ${cover}${side} · ${state}`, true);
 }
 function setStatus(s, html) { if (html) $('status').innerHTML = s; else $('status').textContent = s; }

@@ -66,3 +66,26 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - **Face band.** Each height's rounded cross-section was sized from the side outline at that height, nose included. Rows at nose height got a deeper target, and the whole row of the face was pushed forward (a band across the cheeks, a "mask" look). The head's depth for the profile now has narrow bumps (nose, brow, lips) removed: a morphological opening over a quarter of the head's height. The side outline itself still holds the mesh.
 - Autosave key bumped so browsers stop restoring the old drawing and settings.
 - Checked male, female, 10 and 3 years: neck visible front and side, no face band.
+
+## 2026-09-28 — detail pass: face, hands, feet
+
+- The user asked whether the face, hands and feet could be worked more carefully, with more topology.
+- Why they were blank: outlines can't carry features that sit inside every outline (sockets, lips, nose sides). Fingers and toes were built from generic proportions and only fenced in by the top view; they stayed slabs and blobs.
+- **Second pass.** After the body settles, only the head, hands and feet move; the rest is held. All forces are scaled by 0.4 together.
+  - Scaling only pressure made tension win, and the head collapsed after ~300 steps.
+  - Switching pressure off on the face let tension draw it in from the sides. Pressure now stops only where a face point is already at or past its target.
+- **Face relief** (js/face.js), built from the drawings:
+  - Profile front edge minus the rounded head, spread across by the widths of features that cross the centre line (nose base, mouth).
+  - Lines drawn at the same height in both views give 3D ridges (brows).
+  - Closed shapes in both views give eyes: a low dome with a lid groove round it, capped at 0.4 of the eye's half-height in front of the head (the female eyes bulged otherwise).
+  - Eye and mouth loops are pulled onto the drawn shapes.
+- **Denser face.** Inside the face loop the cage is split in four. The loop's own ring makes the step between densities: two quads become three with no new vertices (a 5-pole outside, a 3-pole inside). Still all quads and one closed mesh; no poles of 6+ added.
+- **Denser faces got crumpled by the body pass.** Steps of ~4 mm outran quads of 2–7 mm. Now the points inside the face loop are carried along (their movement filled in from their neighbours). When the detail pass starts they are laid out on their target: the cage's shrink is undone across, and the eye and mouth areas are moved and scaled onto the drawn eye and mouth. Laying out without that warp left the eye loops ~4 cm off target, and they folded.
+- **Fingers and toes** (js/digits.js):
+  - Each digit of the mesh is matched to its own top-view shape: nearest first; only small, elongated shapes qualify.
+  - Every point of the digit is laid out along the shape: the tube stretches to the drawn length and the tip keeps a round end of the drawn half width. Stretching the whole digit made single-loop toes into cones; sampling the width at the drawn end rounded tips twice.
+  - Offsets are measured against the loops either side (the cage tapers).
+  - Thickness comes from the front view (fingers) or the side view (toes, resting on the floor).
+  - Tension on digits is cut to 0.2 in this pass: on a tube 1–2 cm across it pulled them ~6 mm thin.
+  - Bug found: a flood with a size cap let later small pockets of palm overwrite the finger; now the smaller side of a full search is taken.
+- Still rough: a thin neck at each finger base (between knuckle and first loop, not laid out); the female big toe creases; the face's density step shows as a ring of 3/5 poles round the face.

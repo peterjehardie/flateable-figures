@@ -52,16 +52,23 @@ export class Balloon {
     this.iter = 0;
   }
 
-  // Detail pass: only `face.region` moves (the rest is held), in smaller steps, and the face is
-  // pulled onto its relief (depth over the rounded head) and its loops onto the drawn shapes.
-  startDetail(face) {
+  // Detail pass: only the head, hands and feet move (the rest is held), in smaller steps. The face
+  // is pulled onto its relief (depth over the rounded head) and its loops onto the drawn shapes;
+  // fingers and toes onto their own shapes in the top view.
+  startDetail(face, digits) {
     const P = this.P, n = this.n;
+    const inR = new Uint8Array(n), isFace = new Uint8Array(n);
     // the face was only carried along so far: lay it out on the face it is aiming for
-    if (face.inner && face.layout) for (const v of face.inner) { const p = face.layout(v); P[3 * v] = p[0]; P[3 * v + 1] = p[1]; P[3 * v + 2] = p[2]; }
-    const inR = new Uint8Array(n);
-    for (const v of face.region) inR[v] = 1;
+    if (face && face.inner && face.layout) for (const v of face.inner) { const p = face.layout(v); P[3 * v] = p[0]; P[3 * v + 1] = p[1]; P[3 * v + 2] = p[2]; }
+    if (face) for (const v of face.region) { inR[v] = 1; isFace[v] = 1; }
+    let dt = null;
+    if (digits && digits.verts.length) {
+      for (let i = 0; i < n; i++) if (this.ext[i]) inR[i] = 1;
+      dt = digits.target;
+      for (const v of digits.verts) { P[3 * v] = dt[3 * v]; P[3 * v + 1] = dt[3 * v + 1]; P[3 * v + 2] = dt[3 * v + 2]; }
+    }
     const lt = new Float64Array(2 * n).fill(NaN);
-    for (const L of face.loopTargets) {
+    for (const L of face ? face.loopTargets : []) {
       let cx = 0, cy = 0;
       for (const v of L.verts) { cx += P[3 * v]; cy += P[3 * v + 1]; }
       cx /= L.verts.length; cy /= L.verts.length;
@@ -73,7 +80,7 @@ export class Balloon {
         lt[2 * v] = L.shape[best][0]; lt[2 * v + 1] = L.shape[best][1];
       }
     }
-    this.detail = { face, inR, lt, hold: Float64Array.from(P), iter: 0 };
+    this.detail = { face, inR, isFace, lt, dt, hold: Float64Array.from(P), iter: 0 };
     this.lastMove = Infinity;
   }
 
@@ -157,7 +164,8 @@ export class Balloon {
       PD[i] = prm.pressure * this.pm[i] * stepLen * reach;
       // detail pass: pressure still holds the head out (without it, tension draws the face in
       // from the sides), but stops where a face point already stands at or past its relief
-      if (det && det.inR[i]) {
+      if (det && det.dt && det.dt[3 * i] === det.dt[3 * i]) PD[i] = 0; // digits: their layout sets the shape
+      if (det && det.isFace[i]) {
         const x = P[3 * i], y = P[3 * i + 1], z = P[3 * i + 2];
         const w = this.faceWeight(x, y, z);
         if (w > 0 && z > det.face.baseZ(x, y) + det.face.relief(x, y)) PD[i] *= 1 - w;
@@ -193,7 +201,10 @@ export class Balloon {
       // comes from the rounded-profile constraint
       const ext = this.ext[i];
       const tl = 0.3 * Math.sqrt(e2);
-      const ten = clamp(prm.tension * this.tm[i] * B * ln * (ext ? 0.5 : 1), -tl, tl);
+      // (on fingers and toes in the detail pass tension is mostly left to the layout: on a tube a
+      // centimetre or two across it would otherwise pull them several millimetres thin)
+      const onDigit = det && det.dt && det.dt[3 * i] === det.dt[3 * i];
+      const ten = clamp(prm.tension * this.tm[i] * B * ln * (ext ? 0.5 : 1) * (onDigit ? 0.2 : 1), -tl, tl);
       const f = ext ? clamp(PD[i] + ten, -0.12 * stepLen, 0.12 * stepLen) : clamp(PD[i] + ten, -stepLen, stepLen);
       const bn = -fair * (bx * nx + by * ny + bz * nz);
       let dx = (f + bn) * nx + prm.relax * tx, dy = (f + bn) * ny + prm.relax * ty, dz = (f + bn) * nz + prm.relax * tz;
@@ -206,8 +217,10 @@ export class Balloon {
       if (det && det.inR[i]) {
         const fc = det.face;
         // the face (front of the head) is pulled to its relief; eye and mouth loops to their shapes
-        const w = this.faceWeight(px, py, pz);
+        const w = det.isFace[i] ? this.faceWeight(px, py, pz) : 0;
         if (w > 0) dz += 0.2 * w * (fc.baseZ(px, py) + fc.relief(px, py) - pz);
+        // fingers and toes to their layout along the drawn shapes
+        if (onDigit) { dx += 0.3 * (det.dt[3 * i] - px); dy += 0.3 * (det.dt[3 * i + 1] - py); dz += 0.3 * (det.dt[3 * i + 2] - pz); }
         const tx0 = det.lt[2 * i];
         if (tx0 === tx0) { dx += 0.2 * (tx0 - px); dy += 0.2 * (det.lt[2 * i + 1] - py); }
         // finer steps: every force scaled alike, so the balance (what it settles on) is unchanged
