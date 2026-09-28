@@ -431,6 +431,25 @@ export function makeMeasure(doc, masks, frame) {
     const t = trunk(y);
     prof.trunk.set([t.cx, t.rx, t.cz, t.rz], 4 * b);
   }
+  // On the head, the side outline carries small features (nose, brow, lips) that stick out a
+  // couple of cm over a few cm of height. A rounded cross-section fitted to them pushes the whole
+  // row of the face forward (a band across the cheeks), so the depth used for the profile is the
+  // side outline with such narrow bumps removed (a morphological opening over a quarter of the
+  // head's height, about 5 cm on an adult).
+  {
+    const r = Math.max(1, Math.round((0.12 * (H - W.chin) * NB) / H));
+    const b0 = Math.max(0, Math.floor(((W.chin - 0.01 * H) / H) * NB));
+    const front = new Float64Array(NB), back = new Float64Array(NB), er = new Float64Array(NB);
+    for (let b = 0; b < NB; b++) { front[b] = prof.trunk[4 * b + 2] + prof.trunk[4 * b + 3]; back[b] = prof.trunk[4 * b + 2] - prof.trunk[4 * b + 3]; }
+    const open = (a, sgn) => {
+      for (let b = 0; b < NB; b++) { let m = Infinity; for (let k = Math.max(0, b - r); k <= Math.min(NB - 1, b + r); k++) m = Math.min(m, sgn * a[k]); er[b] = m; }
+      const o = new Float64Array(NB);
+      for (let b = 0; b < NB; b++) { let m = -Infinity; for (let k = Math.max(0, b - r); k <= Math.min(NB - 1, b + r); k++) m = Math.max(m, er[k]); o[b] = sgn * m; }
+      return o;
+    };
+    const fo = open(front, 1), bo = open(back, -1);
+    for (let b = b0; b < NB; b++) { prof.trunk[4 * b + 2] = (fo[b] + bo[b]) / 2; prof.trunk[4 * b + 3] = (fo[b] - bo[b]) / 2; }
+  }
   for (const sign of [1, -1]) {
     let expX = sign * trunk(W.crotch + 0.02 * H).rx * 0.5;
     for (let b = NB - 1; b >= 0; b--) {

@@ -443,7 +443,7 @@ function projectSVG() {
   return exportSVG(app.doc, { params: app.params, prm: app.prm, gapFrac: app.gapFrac });
 }
 function autosave() {
-  try { localStorage.setItem('ff-project-v3', projectSVG()); } catch (e) { /* storage unavailable or full */ }
+  try { localStorage.setItem('ff-project-v4', projectSVG()); } catch (e) { /* storage unavailable or full */ }
 }
 function applyProjectMeta(meta) {
   if (!meta) return;
@@ -798,7 +798,7 @@ async function boot() {
   syncControls();
   requestAnimationFrame(loop);
   let saved = null;
-  try { saved = localStorage.getItem('ff-project-v3'); } catch (e) { saved = null; }
+  try { saved = localStorage.getItem('ff-project-v4'); } catch (e) { saved = null; }
   if (saved) {
     try {
       const { doc, meta } = loadProjectSVG(saved);

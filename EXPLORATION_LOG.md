@@ -57,3 +57,12 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - A constant push crumpled the face loops and toes: big quads outran the tiny loops next to them.
   - Fixed by smoothing the pressure field over neighbours (4 passes), so neighbours move together.
 - Result: head and waist reach 99% of their box within 15–30 steps and hold. Fill 99/98%. Settling is judged on the body only (toe tips on the floor shimmer harmlessly).
+
+## 2026-09-28 — regression: neck gone, face band, side profile
+
+- The user reported that after "even inflation" the neck was gone and the side profile was broken.
+- Measured old vs new, settled, slice by slice against the drawings. Both end up at the same outer extents. The difference was that the new push actually reaches the target; the old one stalled short of it.
+  - **Neck.** The reference front outline flared into the shoulders ~4 cm below the chin. The old balloon never filled that saddle, which left a neck by accident. Once the mesh matched the drawing, the neck disappeared. Fixed in the drawing: longer neck and a lower, sloped trapezius (male and female; the ages remap from the male).
+  - **Face band.** Each height's rounded cross-section was sized from the side outline at that height, nose included. Rows at nose height got a deeper target, and the whole row of the face was pushed forward (a band across the cheeks, a "mask" look). The head's depth for the profile now has narrow bumps (nose, brow, lips) removed: a morphological opening over a quarter of the head's height. The side outline itself still holds the mesh.
+- Autosave key bumped so browsers stop restoring the old drawing and settings.
+- Checked male, female, 10 and 3 years: neck visible front and side, no face band.
