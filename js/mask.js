@@ -65,6 +65,21 @@ function finish(fr, R, offsetPx) {
     sd[i] = (s + offsetPx) * fr.cell;
     if (sd[i] < 0) area++;
   }
+  // light blur so a nearly straight outline doesn't read as pixel stair-steps (which the
+  // balloon would copy as ripples); distances near the edge barely change
+  const tmp = new Float32Array(W * H);
+  for (let pass = 0; pass < 2; pass++) {
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      tmp[i] = (sd[x > 0 ? i - 1 : i] + 2 * sd[i] + sd[x < W - 1 ? i + 1 : i]) / 4;
+    }
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      sd[i] = (tmp[y > 0 ? i - W : i] + 2 * tmp[i] + tmp[y < H - 1 ? i + W : i]) / 4;
+    }
+  }
+  area = 0;
+  for (let i = 0; i < W * H; i++) if (sd[i] < 0) area++;
   // unit gradient field (central differences), sampled alongside the distance
   const gx = new Float32Array(W * H), gy = new Float32Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {

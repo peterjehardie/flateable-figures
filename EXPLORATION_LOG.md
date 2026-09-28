@@ -28,3 +28,19 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 - **Remaining junction weakness.** On the 1-year-old (short, wide pelvis) a band above the crotch stays about 5% under-filled: the single bottom trunk ring has to open onto both legs. The first leg ring now scales with leg length rather than a fixed 4% of height, which helped a little.
 - **Reference figures.** The hand-edited SVG sample was replaced by `js/figure.js`: adult male and female authored in head units after Loomis; children at 15, 10, 5, 3 and 1 year derived from the male by remapping landmark heights and narrowing the body. Each preset has T-pose front, left-facing side, and a top view of hands and feet.
 - **Top view.** It shares the front view's scale and x axis. Its depth origin is aligned automatically by matching the feet to the foot seen in the side view. It holds only hand and foot vertices, in (x, z). Hand depth comes from it instead of the arm cross-section. The hand is still a mitten tube, so the thumb in the plan outline is not reached.
+
+## 2026-09-28 — waist, hands, feet, face topology, inflate on click
+
+- **Waist, second look.** Close-up renders showed three things:
+  - A crease at the waist loop, because the male outline was drawn as a sharp pinch. Redrawn as a gentle taper.
+  - Faint horizontal ripples. Tried: fairing (Laplacian of the Laplacian) at 0.12, which destabilised the waist into a thin neck (dropped, kept at 0.03); a blurred, finer hull raster (no effect on the ripples, kept for smoothness).
+  - The real bug, a 4 cm dent at the front centre of the lower belly. The previous "ellipse curvature" change gave flat fronts a large radius, so weak pressure there, and the crotch chain pulled that column inward. Fixed by only ever tightening the radius (never above the ring mean). Fill 100/100%.
+- **Hands.** Palm with two widening stages (wrist 8m → palm 12m → knuckles 18m) built from 1-to-3 units: a 3-edge and a 5-edge pole each, never touching. The knuckle end is a 7m × 2m grid: finger, web, finger, web, finger, web, finger in the palm-side row, with the back row roofing the knuckles. The thumb leaves an m × m block on the palm side. No 6-edge poles.
+  - First attempt put fingers side by side (6-edge poles at every web).
+  - Units placed side by side also made 6-edge poles.
+  - The right hand needed mirrored unit placement, plus the knuckle-grid offset split between both corners (exact only for even m, i.e. 16 round).
+- **Feet.** The foot leaves an a × a block on the front of the lower leg (like the arms from the torso), runs forward, and widens twice to a 6m × 2m toe grid: big toe, gap, four toes. Toes 2–5 share webs (6-edge poles, accepted). Which side is "inner" is now fixed by construction; it used to be measured, which flipped toe order on some figures.
+- **Face.** Head rings at Loomis face heights. Insets give a loop round the face, two round each eye and two round the mouth. Eyes need 16 round; at 8 they touch at the nose bridge (6-edge poles), so they are skipped there. Default is now 16 round at subdivision level 1 (about the same density as 8 round at level 2).
+- **Balloon on small parts.** Fingers burst: pressure used the mean edge, which on long thin tubes is set by the far-apart loops. Now uses min(mean, 2 × shortest). Fingers and toes also sit a few mm apart, so hands and feet get a slow, gentle fit. The foot and toe loops had depth anchors that fought the hull once the foot settled shorter; removed there.
+- **Inflation** now only runs from the Inflate button and stops when it settles.
+- **Open question from the user:** SVG sheet versus drawing directly in locked orthographic views of the 3D scene.

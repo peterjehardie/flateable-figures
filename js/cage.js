@@ -31,7 +31,9 @@ export const PART_CLASS = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4];
 function rho(a, b, t, mean) {
   const c = Math.cos(t), s = Math.sin(t);
   const r = Math.pow(a * a * c * c + b * b * s * s, 1.5) / Math.max(a * b, 1e-12);
-  return Math.min(Math.max(r, 0.2 * mean), 3 * mean);
+  // only tighten: flat fronts keep the ring's mean radius, or pressure there gets too weak to
+  // resist the pull of the crotch chain (that dented the lower belly)
+  return Math.min(Math.max(r, 0.2 * mean), mean);
 }
 
 function ringStations(stops, counts, jointOn, deltaFn) {
@@ -88,6 +90,138 @@ export function buildCage(M, P) {
     for (let v = 0; v < A; v++) for (let u = 0; u < A; u++) quad(G(u, v), G(u + 1, v), G(u + 1, v + 1), G(u, v + 1), part);
   };
 
+  const setP = (i, p) => { pos[3 * i] = p[0]; pos[3 * i + 1] = p[1]; pos[3 * i + 2] = p[2]; };
+  const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const faceIds = []; // trunk face index by [ring row][column], for the face insets
+
+  // Border of an a x a block of faces cut from a stack of rings (columns wrap around).
+  const holeLoop = (R, j0, c0, A, n) => {
+    const col = (c) => ((c % n) + n) % n;
+    const L = [];
+    for (let t = 0; t <= A; t++) L.push(R[j0][col(c0 + t)]);
+    for (let j = j0 + 1; j <= j0 + A - 1; j++) L.push(R[j][col(c0 + A)]);
+    for (let t = A; t >= 0; t--) L.push(R[j0 + A][col(c0 + t)]);
+    for (let j = j0 + A - 1; j >= j0 + 1; j--) L.push(R[j][col(c0)]);
+    return L;
+  };
+  const inBlock = (j, i, j0, c0, A, n) => j >= j0 && j < j0 + A && ((((i - c0) % n) + n) % n) < A;
+
+  // Widen a ring: each listed edge of the small ring becomes three edges of the new ring
+  // (a "1-to-3" unit: two poles, all quads). Read the other way it is the classic
+  // 3-to-1 reduction used to bring finger loops down to the wrist.
+  const expandStrip = (small, units, part) => {
+    const n = small.length, big = [], inner = [];
+    const nv = () => addV(0, 0, 0, -1, 0, rref[small[0]]);
+    big.push(nv());
+    for (let e = 0; e < n; e++) {
+      const s0 = small[e], s1 = small[(e + 1) % n];
+      const last = e === n - 1;
+      const b0 = big[big.length - 1];
+      if (units.has(e)) {
+        const b1 = nv(), b2 = nv();
+        big.push(b1, b2);
+        const b3 = last ? big[0] : nv();
+        if (!last) big.push(b3);
+        const v1 = nv(), v2 = nv();
+        inner.push([v1, s0, s1, b1, 1 / 3], [v2, s0, s1, b2, 2 / 3]);
+        quad(s0, v1, b1, b0, part); quad(v1, v2, b2, b1, part); quad(v2, s1, b3, b2, part); quad(s0, s1, v2, v1, part);
+      } else {
+        const b1 = last ? big[0] : nv();
+        if (!last) big.push(b1);
+        quad(s0, s1, b1, b0, part);
+      }
+    }
+    const finish = () => { for (const [v, s0, s1, b, t] of inner) setP(v, lerp3(lerp3(P3(s0), P3(s1), t), P3(b), 0.5)); };
+    return { big, finish };
+  };
+  // `count` units spread along edges [start, start + len); flip = mirror the pattern within that
+  // run, so a right hand (walked the other way round) gets the left hand's exact mirror image
+  const unitsOn = (start, len, count, flip = false) => {
+    const set = new Set();
+    for (let i = 0; i < count; i++) {
+      const o = Math.min(len - 1, Math.floor(((i + 0.5) * len) / count));
+      set.add(start + (flip ? len - 1 - o : o));
+    }
+    return set;
+  };
+
+  // A tube grown from a border loop along a path: every ring keeps the loop's vertex order,
+  // each vertex placed on an ellipse (ra along 'up', rb across) around the path.
+  const tubeFromLoop = (loop, path, part, opts = {}) => {
+    const n = loop.length;
+    let c0 = [0, 0, 0];
+    for (const v of loop) { const p = P3(v); c0 = [c0[0] + p[0] / n, c0[1] + p[1] / n, c0[2] + p[2] / n]; }
+    const offs = loop.map((v) => { const p = P3(v); return [p[0] - c0[0], p[1] - c0[1], p[2] - c0[2]]; });
+    let prev = loop;
+    const rings = [];
+    for (let k = 0; k < path.length; k++) {
+      const { c, d, ra, rb } = path[k];
+      const up0 = opts.up || [0, 1, 0];
+      let e1 = [up0[0] - d[0] * (up0[0] * d[0] + up0[1] * d[1] + up0[2] * d[2]), up0[1] - d[1] * (up0[0] * d[0] + up0[1] * d[1] + up0[2] * d[2]), up0[2] - d[2] * (up0[0] * d[0] + up0[1] * d[1] + up0[2] * d[2])];
+      const l1 = Math.hypot(...e1) || 1; e1 = e1.map((x) => x / l1);
+      const e2 = [d[1] * e1[2] - d[2] * e1[1], d[2] * e1[0] - d[0] * e1[2], d[0] * e1[1] - d[1] * e1[0]];
+      const ring = offs.map((o) => {
+        const od = o[0] * d[0] + o[1] * d[1] + o[2] * d[2];
+        const q = [o[0] - od * d[0], o[1] - od * d[1], o[2] - od * d[2]];
+        const u1 = q[0] * e1[0] + q[1] * e1[1] + q[2] * e1[2], u2 = q[0] * e2[0] + q[1] * e2[1] + q[2] * e2[2];
+        const L = Math.hypot(u1, u2) || 1, cu = u1 / L, su = u2 / L;
+        const r = 1 / Math.sqrt((cu / ra) ** 2 + (su / rb) ** 2);
+        const t = Math.atan2(su, cu);
+        const p = [c[0] + (e1[0] * cu + e2[0] * su) * r, c[1] + (e1[1] * cu + e2[1] * su) * r, c[2] + (e1[2] * cu + e2[2] * su) * r];
+        const ax = opts.axis ?? -1;
+        return addV(p[0], p[1], p[2], ax, ax >= 0 ? c[ax] : 0, rho(rb, ra, t, (ra + rb) / 2));
+      });
+      for (let i = 0; i < n; i++) quad(prev[i], prev[(i + 1) % n], ring[(i + 1) % n], ring[i], part);
+      rings.push(ring);
+      prev = ring;
+    }
+    if (opts.cap !== false) {
+      const last = path[path.length - 1];
+      const tip = opts.tip || [last.c[0] + last.d[0] * last.rb, last.c[1] + last.d[1] * last.rb, last.c[2] + last.d[2] * last.rb];
+      cap(prev, 0, tip, last.d, part);
+    }
+    return rings;
+  };
+  const pathBetween = (a, b, count, raFn, rbFn, from = 0, to = 1) => {
+    const d0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const L = Math.hypot(...d0) || 1, d = d0.map((x) => x / L);
+    return Array.from({ length: count }, (_, i) => {
+      const t = from + ((to - from) * (i + 1)) / count;
+      return { c: lerp3(a, b, t), d, ra: raFn(t), rb: rbFn(t) };
+    });
+  };
+
+  // Inset a block of faces: a new loop of quads runs round its border (loops round eyes,
+  // mouth, the face). Face ids stay valid; the block's faces move onto the new inner vertices.
+  const inset = (fids, amount, part, name) => {
+    const cnt = new Map();
+    const key = (a, b) => (a < b ? a * 2097152 + b : b * 2097152 + a);
+    for (const f of fids) for (let i = 0; i < 4; i++) { const k2 = key(quads[4 * f + i], quads[4 * f + ((i + 1) % 4)]); cnt.set(k2, (cnt.get(k2) || 0) + 1); }
+    let cx = 0, cy = 0, cz = 0, nn = 0;
+    for (const f of fids) for (let i = 0; i < 4; i++) { const p = P3(quads[4 * f + i]); cx += p[0]; cy += p[1]; cz += p[2]; nn++; }
+    const cen = [cx / nn, cy / nn, cz / nn];
+    const border = new Map();
+    const edges = [];
+    for (const f of fids) for (let i = 0; i < 4; i++) {
+      const a0 = quads[4 * f + i], b0 = quads[4 * f + ((i + 1) % 4)];
+      if (cnt.get(key(a0, b0)) === 1) edges.push([a0, b0]);
+    }
+    const inner = (v) => {
+      if (!border.has(v)) border.set(v, addV(...lerp3(P3(v), cen, amount), -1, 0, rref[v]));
+      return border.get(v);
+    };
+    for (const [a0, b0] of edges) { inner(a0); inner(b0); }
+    for (const f of fids) for (let i = 0; i < 4; i++) { const v = quads[4 * f + i]; if (border.has(v)) quads[4 * f + i] = border.get(v); }
+    for (const [a0, b0] of edges) quad(a0, b0, border.get(b0), border.get(a0), part);
+    // the new loop, in order round the border
+    const next = new Map(edges.map(([a0, b0]) => [a0, b0]));
+    const ring = [];
+    let v = edges[0][0];
+    for (let g = 0; g < edges.length && v !== undefined; g++) { ring.push(border.get(v)); v = next.get(v); if (v === edges[0][0]) break; }
+    if (name) loops.push({ name, verts: ring, station: true, axis: -1 });
+    return ring;
+  };
+
   // ---------------- trunk ----------------
   const k = P.rings;
   const yBottom = W.crotch + 0.012 * H;
@@ -96,8 +230,18 @@ export function buildCage(M, P) {
     { v: yBottom, name: 'crotch' }, { v: W.hip, name: 'hip' }, { v: W.waist, name: 'waist' }, { v: W.armpit, name: 'armpit' },
     { v: W.shoulder, name: 'shoulder' }, { v: W.neck, name: 'neck' }, { v: W.chin, name: 'chin' }, { v: crown, name: 'crown' },
   ];
-  const tCounts = [k, k, k, a - 1, Math.max(0, k - 1), 0, P.headRings];
-  const trunkYs = ringStations(tStops, tCounts, false, delta);
+  const tCounts = [k, k, k, a - 1, Math.max(0, k - 1), 0, P.face ? 0 : P.headRings];
+  let trunkYs = ringStations(tStops, tCounts, false, delta);
+  // face: head rings at Loomis face heights (fractions of chin -> top of head)
+  const FACE = { mouthLo: 1, mouthHi: 2, eyeLo: 4, eyeHi: 5, faceLo: 0, faceHi: 6 };
+  let headRow0 = -1;
+  if (P.face) {
+    trunkYs = trunkYs.filter((r) => r.name !== 'crown');
+    headRow0 = trunkYs.length - 1; // the chin ring
+    const hh = H - W.chin;
+    const names = ['mouth low', 'mouth high', 'nose', 'eye low', 'eye high', 'brow', 'crown'];
+    [0.13, 0.27, 0.37, 0.46, 0.57, 0.68, 0.8].forEach((f, i) => trunkYs.push({ v: W.chin + f * hh, name: names[i], station: i === 3 }));
+  }
   const jA = trunkYs.findIndex((r) => r.name === 'armpit' && r.station);
   const partOfY = (y) => (y < W.hip ? 0 : y < W.armpit ? 1 : y < W.shoulder ? 2 : y < W.chin ? 3 : 4);
   const T = trunkYs.map(({ v: y }) => {
@@ -113,11 +257,34 @@ export function buildCage(M, P) {
   const cL0 = N / 4 - a / 2, cL1 = N / 4 + a / 2, cR0 = (3 * N) / 4 - a / 2, cR1 = (3 * N) / 4 + a / 2;
   for (let j = 0; j < T.length - 1; j++) {
     const part = partOfY((trunkYs[j].v + trunkYs[j + 1].v) / 2);
+    faceIds[j] = [];
     for (let i = 0; i < N; i++) {
       if (j >= jA && j < jA + a && ((i >= cL0 && i < cL1) || (i >= cR0 && i < cR1))) continue;
       const i2 = (i + 1) % N;
+      faceIds[j][i] = fpart.length;
       quad(T[j][i], T[j][i2], T[j + 1][i2], T[j + 1][i], part);
     }
+  }
+  if (P.face && headRow0 >= 0) {
+    // front faces: nf per side of the centre line
+    const nf = Math.max(1, N / 8);
+    const front = (sideSign) => Array.from({ length: nf }, (_, q) => (sideSign > 0 ? q : N - 1 - q));
+    const rowsFace = [];
+    for (let r = FACE.faceLo; r < FACE.faceHi; r++) rowsFace.push(headRow0 + r);
+    const block = [];
+    // one extra column each side, so eyes and mouth sit inside the face loop
+    const wide = (sg) => Array.from({ length: nf + 1 }, (_, q) => (sg > 0 ? q : N - 1 - q));
+    for (const j of rowsFace) for (const i of [...wide(1), ...wide(-1)]) block.push(faceIds[j][i]);
+    inset(block, 0.12, 4, 'face');
+    // eyes need a face of their own each side with the nose bridge between (16+ round)
+    if (N >= 16) for (const sg of [1, -1]) {
+      const eye = [faceIds[headRow0 + FACE.eyeLo][front(sg)[nf - 1]]];
+      inset(eye, 0.3, 4, 'eye ' + (sg > 0 ? 'L' : 'R'));
+      inset(eye, 0.35, 4, 'eyelid ' + (sg > 0 ? 'L' : 'R'));
+    }
+    const mouth = [faceIds[headRow0 + FACE.mouthLo][0], faceIds[headRow0 + FACE.mouthLo][N - 1]];
+    inset(mouth, 0.25, 4, 'mouth');
+    inset(mouth, 0.35, 4, 'lips');
   }
   trunkYs.forEach((r, j) => {
     if (j > jA && j < jA + a) return;
@@ -141,11 +308,14 @@ export function buildCage(M, P) {
     1: [...T[0].slice(0, N / 2 + 1), ...chain.slice().reverse()],
     [-1]: [...T[0].slice(N / 2), T[0][0], ...chain],
   };
+  const digits = P.digits !== false;
   const lStops = [
     { v: W.crotch - Math.min(0.04 * H, 0.2 * (W.crotch - W.knee)), name: 'upper thigh' }, { v: W.knee, name: 'knee', joint: true },
     { v: W.ankle, name: 'ankle', joint: false }, { v: 0.014 * H, name: 'sole' },
   ];
-  const legYs = ringStations(lStops, [k, k + 1, P.footRings], P.jointLoops, delta);
+  // with a foot, the rings under the ankle are exactly a rows: the foot grows from an a x a block
+  const legYs = ringStations(lStops, [k, k + 1, digits ? a - 1 : P.footRings], P.jointLoops, delta);
+  const jAnk = 1 + legYs.findIndex((r) => r.name === 'ankle');
   for (const sign of [1, -1]) {
     const side = sign > 0 ? 'L' : 'R';
     const pbase = sign > 0 ? 11 : 14;
@@ -164,10 +334,13 @@ export function buildCage(M, P) {
       rings.push(ring);
       ringY.push(y);
     }
+    // the front block (toward +z) under the ankle is where the foot leaves the leg
+    const fc0 = sign > 0 ? N - a / 2 : N / 2 - a / 2;
     for (let j = 0; j < rings.length - 1; j++) {
       const ym = (ringY[j] + ringY[j + 1]) / 2;
       const part = pbase + (ym > W.knee ? 0 : ym > W.ankle ? 1 : 2);
       for (let q = 0; q < N; q++) {
+        if (digits && inBlock(j, q, jAnk, fc0, a, N)) continue;
         const q2 = (q + 1) % N;
         quad(rings[j][q], rings[j][q2], rings[j + 1][q2], rings[j + 1][q], part);
       }
@@ -176,6 +349,98 @@ export function buildCage(M, P) {
     const last = rings[rings.length - 1];
     const sole = M.leg(sign, 0.004 * H, expX);
     cap(last, a / 2, [sole.cx, 0, sole.cz], [0, -1, 0], pbase + 2);
+    if (digits) buildFoot(sign, holeLoop(rings, jAnk, fc0, a, N), pbase + 2, side, expX);
+  }
+
+  function buildFoot(sign, loop, part, side, legX) {
+    const F = M.foot(sign, legX);
+    const mm = N / 8;
+    let c = [0, 0, 0];
+    for (const v of loop) { const p = P3(v); c = [c[0] + p[0] / loop.length, c[1] + p[1] / loop.length, c[2] + p[2] / loop.length]; }
+    const zBall = F.zToe - 0.27 * F.len;
+    const nR = Math.max(1, P.footRings);
+    const path = [];
+    for (let i = 1; i <= nR; i++) {
+      const t = i / nR, z = c[2] + (zBall - c[2]) * t;
+      const f = F.at(z);
+      path.push({ c: [f.cx, f.h * 0.5, z], d: [0, 0, 1], ra: Math.max(f.h * 0.5 * Math.max(s0, 0.6), 0.004 * H), rb: Math.max(f.w * 0.5 * Math.max(s0, 0.6), 0.004 * H) });
+    }
+    const fr = tubeFromLoop(loop, path, part, { cap: false, axis: -1 });
+    fr.forEach((r, i) => loops.push({ name: 'foot ' + (i + 1) + ' ' + side, verts: r.slice(), station: false, axis: -1 }));
+    // widen for the toes in two stages, so no two 1-to-3 units touch (that would make 6-edge poles).
+    // The loop starts on the instep, runs down the far side, back along the sole, up the near side.
+    const lastRing = fr[fr.length - 1];
+    const q2 = 2 * mm;
+    const zMid = zBall + 0.025 * F.len;
+    const fMid = F.at(zMid);
+    // the loop starts on the hole's first column, which lies toward smaller x on both legs
+    // (inner side of the left leg, outer side of the right): fixed by construction, not measured
+    const cdir0 = 1;
+    const footWalk = (f, z, counts) => {
+      // corners in (across, up): start on the instep at the loop's first side
+      const corners = [[-1, 1], [1, 1], [1, -1], [-1, -1]];
+      const pts = [];
+      for (let sd = 0; sd < 4; sd++) {
+        const A0 = corners[sd], A1 = corners[(sd + 1) % 4];
+        for (let t = 0; t < counts[sd]; t++) {
+          const u = t / counts[sd];
+          const au = A0[0] + (A1[0] - A0[0]) * u, av = A0[1] + (A1[1] - A0[1]) * u;
+          pts.push([f.cx + cdir0 * au * f.w * 0.46, 0.012 * H + ((av + 1) / 2) * Math.max(f.h - 0.012 * H, 0.01 * H) * 0.9, z]);
+        }
+      }
+      return pts;
+    };
+    const ffl = sign < 0;
+    const exA = expandStrip(lastRing, new Set([...unitsOn(0, q2, mm, ffl), ...unitsOn(2 * q2, q2, mm, ffl)]), part);
+    footWalk(fMid, zMid, [4 * mm, 2 * mm, 4 * mm, 2 * mm]).forEach((p, i) => setP(exA.big[i], p));
+    exA.finish();
+    // no anchors along the foot: once the hull settles the foot a little shorter, anchors fight it
+    const ex = expandStrip(exA.big, new Set([...unitsOn(0, 4 * mm, mm, ffl), ...unitsOn(6 * mm, 4 * mm, mm, ffl)]), part);
+    const C = 6 * mm, R2 = 2 * mm, big = ex.big;
+    // end grid: r = 0 sole, r = R2 instep; c = 0 on the loop's first side
+    const G = new Array((C + 1) * (R2 + 1));
+    let idx = 0;
+    for (let cc = 0; cc <= C; cc++) G[R2 * (C + 1) + cc] = big[idx++];
+    for (let rr = R2 - 1; rr >= 0; rr--) G[rr * (C + 1) + C] = big[idx++];
+    for (let cc = C - 1; cc >= 0; cc--) G[cc] = big[idx++];
+    for (let rr = 1; rr < R2; rr++) G[rr * (C + 1)] = big[idx++];
+    const zEnd = zBall + 0.05 * F.len;
+    const fEnd = F.at(zEnd);
+    const cdir = 1; // c = 0 at smaller x
+    const gx = (cc) => fEnd.cx + cdir * (-0.5 + cc / C) * fEnd.w * 0.95;
+    const gy = (rr) => 0.012 * H + (rr / R2) * Math.max(fEnd.h - 0.012 * H, 0.01 * H) * 0.9;
+    for (let rr = 0; rr <= R2; rr++) for (let cc = 0; cc <= C; cc++) {
+      const i = rr * (C + 1) + cc;
+      if (G[i] === undefined) G[i] = addV(0, 0, 0, -1, 0, rref[big[0]]);
+      setP(G[i], [gx(cc), gy(rr), zEnd]);
+    }
+    ex.finish();
+    // toe blocks sit in the sole-side row; the big toe is on the inner side (toward x = 0)
+    const innerAtC0 = sign > 0;
+    const order = innerAtC0 ? [0, 1, 2, 3, 4, 5] : [5, 4, 3, 2, 1, 0]; // block index from the inner side
+    const toeOfBlock = new Map([[order[0], 0], [order[2], 1], [order[3], 2], [order[4], 3], [order[5], 4]]);
+    const Gv = (cc, rr) => G[rr * (C + 1) + cc];
+    for (let rr = 0; rr < R2; rr++) for (let cc = 0; cc < C; cc++) {
+      const blk = Math.floor(cc / mm);
+      if (rr < mm && toeOfBlock.has(blk)) continue;
+      quad(Gv(cc, rr), Gv(cc + 1, rr), Gv(cc + 1, rr + 1), Gv(cc, rr + 1), part);
+    }
+    const TOE_LEN = [0.23, 0.2, 0.18, 0.16, 0.13], TOE_R = [0.07, 0.048, 0.045, 0.042, 0.038];
+    for (const [blk, t] of toeOfBlock) {
+      const L = [];
+      for (let cc = blk * mm; cc <= (blk + 1) * mm; cc++) L.push(Gv(cc, 0));
+      for (let rr = 1; rr <= mm; rr++) L.push(Gv((blk + 1) * mm, rr));
+      for (let cc = (blk + 1) * mm - 1; cc >= blk * mm; cc--) L.push(Gv(cc, mm));
+      for (let rr = mm - 1; rr >= 1; rr--) L.push(Gv(blk * mm, rr));
+      let bc = [0, 0, 0];
+      for (const v of L) { const p = P3(v); bc = [bc[0] + p[0] / L.length, bc[1] + p[1] / L.length, bc[2] + p[2] / L.length]; }
+      const len = TOE_LEN[t] * F.len, rr0 = TOE_R[t] * F.len;
+      const tip = [bc[0] + (t === 0 ? 0 : -sign * 0.01 * t * F.len), bc[1] - 0.2 * rr0, F.zToe - (0.02 + 0.035 * t) * F.len];
+      const nT = Math.max(1, P.toeRings);
+      const tp = pathBetween(bc, tip, nT + 1, (u) => rr0 * (1 - 0.25 * u), (u) => rr0 * (1 - 0.2 * u) * (t === 0 ? 1.2 : 1), 0.15, 0.85).slice(0, nT);
+      const tr = tubeFromLoop(L, tp, part, { axis: -1, tip });
+      tr.forEach((r, i) => loops.push({ name: 'toe ' + (t + 1) + '.' + (i + 1) + ' ' + side, verts: r.slice(), station: false, axis: -1 }));
+    }
   }
 
   // ---------------- arms ----------------
@@ -187,11 +452,12 @@ export function buildCage(M, P) {
     for (let j = jA + a - 1; j >= jA + 1; j--) L.push(T[j][c0]);
     return L;
   };
-  const aStops = [
-    { v: W.shoulderX * 1.15, name: 'upper arm' }, { v: W.elbowX, name: 'elbow', joint: true },
-    { v: W.wristX, name: 'wrist', joint: true }, { v: W.tipX - 0.022 * H, name: 'fingers' },
-  ];
-  const armXs = ringStations(aStops, [k, k, P.handRings], P.jointLoops, delta);
+  const aStops = digits
+    ? [{ v: W.shoulderX * 1.15, name: 'upper arm' }, { v: W.elbowX, name: 'elbow', joint: true }, { v: W.wristX, name: 'wrist', joint: true }]
+    : [{ v: W.shoulderX * 1.15, name: 'upper arm' }, { v: W.elbowX, name: 'elbow', joint: true }, { v: W.wristX, name: 'wrist', joint: true }, { v: W.tipX - 0.022 * H, name: 'fingers' }];
+  const aCounts = digits ? [k, k] : [k, k, P.handRings];
+  const armXs = ringStations(aStops, aCounts, P.jointLoops, delta);
+  if (digits && P.jointLoops) armXs.pop(); // keep the wrist ring itself as the last ring before the hand
   for (const sign of [1, -1]) {
     const side = sign > 0 ? 'L' : 'R';
     const pbase = sign > 0 ? 5 : 8;
@@ -219,8 +485,118 @@ export function buildCage(M, P) {
       }
     }
     armXs.forEach((r, j) => loops.push({ name: (r.name || 'arm ' + j) + ' ' + side, verts: rings[j + 1].slice(), station: !!r.station, axis: 0 }));
-    const tip = M.arm(sign, W.tipX);
-    cap(rings[rings.length - 1], 0, [sign * W.tipX, tip.cy, tip.cz], [sign, 0, 0], pbase + 2);
+    if (digits) buildHand(sign, rings[rings.length - 1], ringX[ringX.length - 1], pbase + 2, side);
+    else {
+      const tip = M.arm(sign, W.tipX);
+      cap(rings[rings.length - 1], 0, [sign * W.tipX, tip.cy, tip.cz], [sign, 0, 0], pbase + 2);
+    }
+  }
+
+  function buildHand(sign, wrist, xw, part, side) {
+    const mm = N / 8;
+    const L = W.tipX - xw;
+    const xk = xw + 0.45 * L; // knuckles
+    const nP = mm + 2; // palm rings K0..Km (12m round), then the knuckle ring K(m+1) (18m round)
+    const K = [];
+    // palm ring: flat rounded rectangle walked [palm, side, back of hand, side], starting where
+    // the wrist ring starts (palm side, the wrist ring's q = 0 corner)
+    const walk = (x, counts) => {
+      const sec = M.arm(sign, x);
+      const hy = Math.max(sec.ry, 0.004 * H) * Math.max(s0, 0.75), hz = Math.max(sec.rz, 0.006 * H) * Math.max(s0, 0.75);
+      const pts = [];
+      const corners = [[1, -1], [-1, -1], [-1, 1], [1, 1]]; // (across, up): across +1 = the wrist ring's start side
+      for (let sd = 0; sd < 4; sd++) {
+        const A0 = corners[sd], A1 = corners[(sd + 1) % 4];
+        for (let t = 0; t < counts[sd]; t++) {
+          const u = t / counts[sd];
+          let au = A0[0] + (A1[0] - A0[0]) * u, av = A0[1] + (A1[1] - A0[1]) * u;
+          const l = Math.hypot(au, av) || 1; // round the corners a little
+          au = au * 0.7 + (au / l) * 0.3 * Math.SQRT2 * 0.72; av = av * 0.7 + (av / l) * 0.3 * Math.SQRT2 * 0.72;
+          pts.push([sign * x, sec.cy + av * hy, sec.cz + sign * au * hz]);
+        }
+      }
+      return pts;
+    };
+    // stage 1 (wrist -> palm): one 1-to-3 unit per m edges on the palm and on the back of the hand
+    const fl = sign < 0;
+    const ex = expandStrip(wrist, new Set([...unitsOn(0, 2 * mm, mm, fl), ...unitsOn(4 * mm, 2 * mm, mm, fl)]), part);
+    const x0 = xw + 0.12 * L;
+    walk(x0, [4 * mm, 2 * mm, 4 * mm, 2 * mm]).forEach((p, i) => setP(ex.big[i], p));
+    ex.finish();
+    K.push(ex.big);
+    for (const i of ex.big) { anchorAxis[i] = 0; anchorVal[i] = sign * x0; }
+    const xAt = (j) => x0 + ((xk - x0) * j) / (nP - 1);
+    for (let j = 1; j < nP - 1; j++) K.push(walk(xAt(j), [4 * mm, 2 * mm, 4 * mm, 2 * mm]).map((p) => addV(p[0], p[1], p[2], 0, p[0], rref[wrist[0]] * 0.6)));
+    const n12 = 12 * mm;
+    // thumb block: on the physical front (+z) side, the palm-side half, first m rows
+    const thumbC0 = sign > 0 ? 11 * mm : 4 * mm;
+    for (let j = 0; j < nP - 2; j++) {
+      for (let q = 0; q < n12; q++) {
+        if (inBlock(j, q, 0, thumbC0, mm, n12)) continue;
+        quad(K[j][q], K[j][(q + 1) % n12], K[j + 1][(q + 1) % n12], K[j + 1][q], part);
+      }
+    }
+    // stage 2 (palm -> knuckles): 2m units on the palm side, m on the back, never side by side
+    const ex2 = expandStrip(K[nP - 2], new Set([...unitsOn(0, 4 * mm, 2 * mm, fl), ...unitsOn(6 * mm, 4 * mm, mm, fl)]), part);
+    // the widened ring is [8m, 2m, 6m, 2m] round; the knuckle grid wants [7m, 2m, 7m, 2m], so the
+    // grid starts m/2 along: the shift is shared by both corners and the hands stay mirror images
+    const n18 = 18 * mm, off = Math.floor(mm / 2);
+    walk(xk, [7 * mm, 2 * mm, 7 * mm, 2 * mm]).forEach((p, i) => setP(ex2.big[(i + off) % n18], p));
+    ex2.finish();
+    for (const i of ex2.big) { anchorAxis[i] = 0; anchorVal[i] = sign * xk; }
+    K.push(ex2.big);
+    K.forEach((r, i) => loops.push({ name: 'palm ' + i + ' ' + side, verts: r.slice(), station: i === nP - 1, axis: 0 }));
+    // knuckle end grid 7m x 2m: finger, web, finger, web, finger, web, finger along the palm-side row;
+    // the back-of-hand row roofs the knuckles
+    const C = 7 * mm, R2 = 2 * mm, KL = K[nP - 1].map((_, i, arr) => arr[(i + off) % n18]);
+    const G = new Array((C + 1) * (R2 + 1));
+    let idx = 0;
+    for (let cc = 0; cc <= C; cc++) G[cc] = KL[idx++];
+    for (let rr = 1; rr <= R2; rr++) G[rr * (C + 1) + C] = KL[idx++];
+    for (let cc = C - 1; cc >= 0; cc--) G[R2 * (C + 1) + cc] = KL[idx++];
+    for (let rr = R2 - 1; rr >= 1; rr--) G[rr * (C + 1)] = KL[idx++];
+    const Gv = (cc, rr) => G[rr * (C + 1) + cc];
+    for (let rr = 1; rr < R2; rr++) for (let cc = 1; cc < C; cc++) {
+      const pa = P3(Gv(cc, 0)), pb = P3(Gv(cc, R2));
+      G[rr * (C + 1) + cc] = addV(...lerp3(pa, pb, rr / R2).map((v, ci) => (ci === 0 ? v + sign * 0.004 * H : v)), 0, sign * xk, rref[KL[0]]);
+    }
+    const isFinger = (blk) => blk % 2 === 0;
+    for (let rr = 0; rr < R2; rr++) for (let cc = 0; cc < C; cc++) {
+      if (rr < mm && isFinger(Math.floor(cc / mm))) continue; // finger bases
+      quad(Gv(cc, rr), Gv(cc + 1, rr), Gv(cc + 1, rr + 1), Gv(cc, rr + 1), part);
+    }
+    // c = 0 is the wrist ring's start side: +z (index finger) for the left hand, -z (little finger) for the right
+    const FL = [0.52, 0.56, 0.53, 0.42], FW = [0.105, 0.11, 0.1, 0.085], SPREAD = [0.035, 0.01, -0.012, -0.04];
+    const nF = Math.max(1, P.fingerRings);
+    for (let fb = 0; fb < 4; fb++) {
+      const b = 2 * fb; // finger blocks are the even ones
+      const f = sign > 0 ? fb : 3 - fb; // 0 index ... 3 little
+      const Lp = [];
+      for (let cc = b * mm; cc <= (b + 1) * mm; cc++) Lp.push(Gv(cc, 0));
+      for (let rr = 1; rr <= mm; rr++) Lp.push(Gv((b + 1) * mm, rr));
+      for (let cc = (b + 1) * mm - 1; cc >= b * mm; cc--) Lp.push(Gv(cc, mm));
+      for (let rr = mm - 1; rr >= 1; rr--) Lp.push(Gv(b * mm, rr));
+      let bc = [0, 0, 0];
+      for (const v of Lp) { const p = P3(v); bc = [bc[0] + p[0] / Lp.length, bc[1] + p[1] / Lp.length, bc[2] + p[2] / Lp.length]; }
+      const len = FL[f] * L, wr = FW[f] * L * 0.5;
+      const tip = [sign * (Math.abs(bc[0]) + len), bc[1], bc[2] + SPREAD[f] * L];
+      const hand = M.arm(sign, Math.abs(bc[0]));
+      const th = Math.min(hand.ry * 0.85, wr * 0.95);
+      const fp = pathBetween(bc, tip, nF + 1, (u) => th * (1 - 0.3 * u), (u) => wr * (1 - 0.25 * u), 0.12, 0.88).slice(0, nF);
+      const fr = tubeFromLoop(Lp, fp, part, { axis: 0, tip });
+      fr.forEach((r, i) => loops.push({ name: ['index', 'middle', 'ring', 'little'][f] + ' ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: 0 }));
+    }
+    // thumb: forward, outward and a little toward the palm
+    const tl = holeLoop(K, 0, thumbC0, mm, n12);
+    let tc = [0, 0, 0];
+    for (const v of tl) { const p = P3(v); tc = [tc[0] + p[0] / tl.length, tc[1] + p[1] / tl.length, tc[2] + p[2] / tl.length]; }
+    const tdir = [sign * 0.55, -0.22, 0.8], tn = Math.hypot(...tdir);
+    const tlen = 0.42 * L;
+    const ttip = [tc[0] + (tdir[0] / tn) * tlen, tc[1] + (tdir[1] / tn) * tlen, tc[2] + (tdir[2] / tn) * tlen];
+    const tw = 0.06 * L;
+    const tp = pathBetween(tc, ttip, nF + 1, (u) => tw * (1 - 0.25 * u), (u) => tw * 1.1 * (1 - 0.2 * u), 0.15, 0.88).slice(0, nF);
+    const trs = tubeFromLoop(tl, tp, part, { axis: -1, tip: ttip, up: [0, 1, 0] });
+    trs.forEach((r, i) => loops.push({ name: 'thumb ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: -1 }));
   }
 
   // ---------------- compact, orient ----------------
@@ -242,7 +618,15 @@ export function buildCage(M, P) {
     out.anchorAxis[j] = anchorAxis[i]; out.anchorVal[j] = anchorVal[i]; out.rref[j] = rref[i];
   }
   for (let i = 0; i < quads.length; i++) out.quads[i] = remap[quads[i]];
-  out.loops = loops.map((l) => ({ ...l, verts: l.verts.map((v) => remap[v]) }));
+  const edgeSet = new Set();
+  for (let f = 0; f < out.quads.length / 4; f++) for (let i = 0; i < 4; i++) {
+    const a0 = out.quads[4 * f + i], b0 = out.quads[4 * f + ((i + 1) % 4)];
+    edgeSet.add(a0 < b0 ? a0 * 2097152 + b0 : b0 * 2097152 + a0);
+  }
+  out.loops = loops.map((l) => ({ ...l, verts: l.verts.map((v) => remap[v]) })).filter((l) => l.verts.every((v, i) => {
+    const w = l.verts[(i + 1) % l.verts.length];
+    return v >= 0 && w >= 0 && edgeSet.has(v < w ? v * 2097152 + w : w * 2097152 + v);
+  }));
   orient(out);
   out.check = checkManifold(out);
   return out;

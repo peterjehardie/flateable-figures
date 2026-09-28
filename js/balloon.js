@@ -79,18 +79,35 @@ export class Balloon {
     const rref = this.mesh.rref;
     this.computeNormals();
     const stepLen = 0.0022 * H;
-    if (!this.prev) this.prev = new Float64Array(3 * n);
+    if (!this.prev) { this.prev = new Float64Array(3 * n); this.Lap = new Float64Array(3 * n); this.E2 = new Float64Array(n); }
     this.prev.set(P);
+    const Lap = this.Lap, E2 = this.E2;
+    // pass 1: umbrella Laplacian per vertex
     for (let i = 0; i < n; i++) {
-      let sx = 0, sy = 0, sz = 0, e2 = 0;
+      let sx = 0, sy = 0, sz = 0, e2 = 0, emin = Infinity;
       const k0 = off[i], k1 = off[i + 1], cnt = k1 - k0;
       const px = P[3 * i], py = P[3 * i + 1], pz = P[3 * i + 2];
       for (let k = k0; k < k1; k++) {
         const j = nb[k];
         const dx = P[3 * j] - px, dy = P[3 * j + 1] - py, dz = P[3 * j + 2] - pz;
-        sx += dx; sy += dy; sz += dz; e2 += dx * dx + dy * dy + dz * dz;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        sx += dx; sy += dy; sz += dz; e2 += d2;
+        if (d2 < emin) emin = d2;
       }
-      sx /= cnt; sy /= cnt; sz /= cnt; e2 /= cnt;
+      // Pressure scale: on long thin tubes (fingers) the loops are far apart but the edges round
+      // the tube are short, and only those set the curvature. The mean edge overpressured fingers
+      // ~16x; the shorter of (mean, 2 x shortest) keeps the torso as it was and fingers intact.
+      Lap[3 * i] = sx / cnt; Lap[3 * i + 1] = sy / cnt; Lap[3 * i + 2] = sz / cnt; E2[i] = Math.min(e2 / cnt, 2 * emin);
+    }
+    const fair = prm.fair ?? 0.03;
+    for (let i = 0; i < n; i++) {
+      const k0 = off[i], k1 = off[i + 1], cnt = k1 - k0;
+      const px = P[3 * i], py = P[3 * i + 1], pz = P[3 * i + 2];
+      const sx = Lap[3 * i], sy = Lap[3 * i + 1], sz = Lap[3 * i + 2], e2 = E2[i];
+      // fairing: Laplacian of the Laplacian damps row-to-row zig-zags (ripples on stretched
+      // quads) while leaving the large-scale shape alone
+      let bx = -sx, by = -sy, bz = -sz;
+      for (let k = k0; k < k1; k++) { const j = nb[k]; bx += Lap[3 * j] / cnt; by += Lap[3 * j + 1] / cnt; bz += Lap[3 * j + 2] / cnt; }
       const nx = Nn[3 * i], ny = Nn[3 * i + 1], nz = Nn[3 * i + 2];
       const ln = sx * nx + sy * ny + sz * nz;
       const tx = sx - ln * nx, ty = sy - ln * ny, tz = sz - ln * nz;
@@ -101,14 +118,19 @@ export class Balloon {
       // anything smaller than its target radius collapses.)
       const B = 0.8;
       let f = prm.pressure * this.pm[i] * B * e2 / (2 * rref[i]) + prm.tension * this.tm[i] * B * ln;
-      const lim = Math.min(0.3 * Math.sqrt(e2), stepLen);
+      // hands and feet are built close to shape and have gaps of a few mm between fingers and
+      // toes: they get a slow, gentle fit so neighbouring surfaces can't be pushed through each other
+      const ext = this.ext[i];
+      const lim = ext ? Math.min(0.06 * Math.sqrt(e2), 0.12 * stepLen) : Math.min(0.25 * Math.sqrt(e2), stepLen);
+      if (ext) f *= 0.5;
       f = clamp(f, -lim, lim);
-      let dx = f * nx + prm.relax * tx, dy = f * ny + prm.relax * ty, dz = f * nz + prm.relax * tz;
+      const bn = -fair * (bx * nx + by * ny + bz * nz);
+      let dx = (f + bn) * nx + prm.relax * tx, dy = (f + bn) * ny + prm.relax * ty, dz = (f + bn) * nz + prm.relax * tz;
       const ax = this.axis[i];
       if (ax >= 0 && prm.anchor > 0) {
-        const cur = ax === 0 ? px : py;
+        const cur = ax === 0 ? px : ax === 1 ? py : pz;
         const pull = prm.anchor * (this.aval[i] - cur);
-        if (ax === 0) dx += pull; else dy += pull;
+        if (ax === 0) dx += pull; else if (ax === 1) dy += pull; else dz += pull;
       }
       D[3 * i] = dx; D[3 * i + 1] = dy; D[3 * i + 2] = dz;
     }
@@ -146,8 +168,8 @@ export class Balloon {
       if (c === 1 || c === 2) {
         const sign = c === 1 ? 1 : -1;
         const a = M.armAt(sign, x);
-        if (topHeld && this.ext[i] === 1) {
-          // hand depth comes from the top view
+        if (this.ext[i] === 1) {
+          // hand depth comes from the top view when there is one; never from the arm's cross-section
         } else if (sec) {
           const [zlo, zhi] = M.armDepthLimits(sign, a, y);
           if (z < zlo) z = zlo; else if (z > zhi) z = zhi;

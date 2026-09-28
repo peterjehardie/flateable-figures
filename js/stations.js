@@ -72,6 +72,18 @@ export function makeSamplers(frame, masks) {
       const r = sdGrad(masks.top, xd, yd);
       return { d: r.d * frame.T.s, gx: r.gx, gz: r.gy };
     },
+    // side view: heights (y ranges) of the figure at depth z
+    sideCol(z) {
+      if (!masks.side) return [];
+      const xd = S.ax - (S.dir * z) / S.s;
+      return colSpans(masks.side, xd).map(([a, b]) => [(S.fl - b) * S.s, (S.fl - a) * S.s]);
+    },
+    // top view: x ranges at depth z
+    topRow(z) {
+      if (!masks.top) return [];
+      const yd = z / frame.T.s + frame.T.az;
+      return rowSpans(masks.top, yd).map(([a, b]) => [(a - frame.T.ax) * frame.T.s, (b - frame.T.ax) * frame.T.s]);
+    },
     topCol(x) {
       if (!masks.top) return [];
       const xd = x / frame.T.s + frame.T.ax;
@@ -391,7 +403,24 @@ export function makeMeasure(doc, masks, frame) {
     const lo = section.lo[i] + (section.lo[i + 1] - section.lo[i]) * t, hi = section.hi[i] + (section.hi[i + 1] - section.hi[i]) * t;
     return [section.cz + k * (lo - section.cz), section.cz + k * (hi - section.cz)];
   };
-  return { H, W, trunk, leg, arm, armAt, armDepthLimits, section, ry0, samplers: smp, hasTop: !!masks.top };
+  // foot: heel-to-toe extent from the side view, width from the top view (or the front view)
+  const foot = (sign, legX) => {
+    const sp = sideSpan(0.012 * H) || [-0.05 * H, 0.1 * H];
+    const zHeel = sp[0], zToe = sp[1], len = Math.max(zToe - zHeel, 0.05 * H);
+    const fr = smp.frontRow(0.01 * H).filter(([a, b]) => (sign > 0 ? b > 0 : a < 0) && Math.abs((a + b) / 2 - legX) < 0.12 * H);
+    const fs = fr.length ? fr.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - legX) < Math.abs((p[0] + p[1]) / 2 - legX) ? c : p)) : [legX - 0.03 * H, legX + 0.03 * H];
+    const at = (z) => {
+      let cx = (fs[0] + fs[1]) / 2, w = fs[1] - fs[0];
+      // the top view also holds the hands: take the shape nearest this leg
+      const tr = smp.topRow(z).filter(([a, b]) => Math.abs((a + b) / 2 - legX) < 0.12 * H);
+      if (tr.length) { const t = tr.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - legX) < Math.abs((p[0] + p[1]) / 2 - legX) ? c : p)); cx = (t[0] + t[1]) / 2; w = t[1] - t[0]; }
+      const cs = smp.sideCol(z).filter(([a]) => a < 0.08 * H);
+      const h = cs.length ? Math.max(cs[0][1], 0.012 * H) : 0.03 * H;
+      return { cx, w: Math.max(w, 0.01 * H), h: Math.min(h, 0.09 * H) };
+    };
+    return { zHeel, zToe, len, at };
+  };
+  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top };
 }
 
 // A symmetric stand-in measure with the same stations: used to find mirror pairs.
@@ -402,5 +431,6 @@ export function canonicalMeasure(measure) {
     trunk: () => ({ cx: 0, cz: 0, rx: 0.09 * H, rz: 0.06 * H }),
     leg: (sign) => ({ cx: sign * 0.05 * H, cz: 0, rx: 0.04 * H, rz: 0.04 * H }),
     arm: () => ({ cy: (W.armpit + W.shoulder) / 2, cz: 0, ry: 0.03 * H, rz: 0.03 * H }),
+    foot: (sign) => ({ zHeel: -0.03 * H, zToe: 0.11 * H, len: 0.14 * H, at: () => ({ cx: sign * 0.05 * H, w: 0.05 * H, h: 0.04 * H }) }),
   };
 }

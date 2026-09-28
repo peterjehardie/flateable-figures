@@ -11,7 +11,7 @@ import { bboxOf } from './util.js';
 // can't change what the outside flood reaches, and coloured strokes often seal gaps.
 const HULL_ROLES = new Set(['line', 'feature', 'section']);
 
-export function buildMasks(doc, { gapFrac = 0.012, res = 720 } = {}) {
+export function buildMasks(doc, { gapFrac = 0.012, res = 1000 } = {}) {
   const masks = { front: null, side: null, top: null, section: null };
   for (const view of ['front', 'side', 'top']) {
     const ps = doc.paths.filter((p) => p.view === view && HULL_ROLES.has(p.role));

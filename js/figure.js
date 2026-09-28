@@ -23,7 +23,7 @@ const MALE = {
     [2.52, 1.46, 1.82], [2.8, 1.49, 1.79], [3.18, 1.53, 1.73], [3.3, 1.545, 1.72], [3.55, 1.55, 1.71], [3.8, 1.565, 1.70], [3.97, 1.59, 1.68]],
   armTip: [4.03, 1.635],
   armpit: [0.96, 1.96, 'c'],
-  frontTorso: [[0.9, 2.05], [0.88, 2.3], [0.82, 2.55], [0.72, 2.78], [0.67, 2.92], [0.7, 3.12], [0.75, 3.35], [0.79, 3.62], [0.81, 3.85], [0.8, 4.05]],
+  frontTorso: [[0.9, 2.05], [0.885, 2.3], [0.845, 2.52], [0.78, 2.72], [0.725, 2.9], [0.71, 3.05], [0.73, 3.22], [0.765, 3.42], [0.795, 3.65], [0.808, 3.88], [0.8, 4.05]],
   frontLegOuter: [[0.78, 4.35], [0.72, 4.75], [0.63, 5.2], [0.555, 5.6], [0.525, 5.85], [0.52, 6.02], [0.565, 6.3], [0.56, 6.55], [0.49, 6.95], [0.41, 7.3], [0.365, 7.58], [0.375, 7.66], [0.4, 7.8], [0.47, 7.93], [0.48, 8.0, 'c']],
   frontLegInner: [[0.1, 8.0, 'c'], [0.1, 7.9], [0.155, 7.72], [0.17, 7.6], [0.155, 7.5], [0.14, 7.2], [0.115, 6.75], [0.11, 6.45], [0.125, 6.1], [0.105, 5.86], [0.088, 5.62], [0.085, 5.3], [0.1, 4.95], [0.085, 4.55], [0.045, 4.2], [0, 4.03, 'c']],
   // side view (facing left): z forward
@@ -98,6 +98,16 @@ function catmull(pts, closed, perSeg = 10) {
   return out;
 }
 
+// closed outline of a tapered capsule from a (radius ra) to b (radius rb)
+function capsule(a, b, ra, rb, n = 10) {
+  const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1;
+  const ux = dx / L, uz = dz / L, px = -uz, pz = ux;
+  const pts = [];
+  for (let i = 0; i <= n; i++) { const t = Math.PI / 2 + (Math.PI * i) / n; pts.push([a[0] + (ux * Math.cos(t) + px * Math.sin(t)) * ra, a[1] + (uz * Math.cos(t) + pz * Math.sin(t)) * ra]); }
+  for (let i = 0; i <= n; i++) { const t = -Math.PI / 2 + (Math.PI * i) / n; pts.push([b[0] + (ux * Math.cos(t) + px * Math.sin(t)) * rb, b[1] + (uz * Math.cos(t) + pz * Math.sin(t)) * rb]); }
+  return pts;
+}
+
 function interp(xs, ys, x) {
   if (x <= xs[0]) return ys[0] + (x - xs[0]) * ((ys[1] - ys[0]) / (xs[1] - xs[0]));
   for (let i = 1; i < xs.length; i++) if (x <= xs[i]) return ys[i - 1] + ((ys[i] - ys[i - 1]) * (x - xs[i - 1])) / (xs[i] - xs[i - 1]);
@@ -145,14 +155,27 @@ export function buildFigure(key) {
   const side = [...B.sideFront, ...B.sideBack].map((p) => [sideZ(p[0], p[1]), Y(p[1]), p[2]]);
   const sec = B.armSection;
 
-  // top view: hands and feet
-  const hand = B.hand.map(([x, z]) => [armX(x), sec.z * body + z * limb]);
-  const foot = B.foot.map(([x, z]) => [x * body, z * body]);
+  // top view: hands (palm, four fingers, thumb) and feet (sole, five toes), each digit its own
+  // shape with a small gap, so every finger and toe gets its own space to inflate into
+  const xw = armX(B.armX[2]), xt = armX(B.armX[3]), Lh = xt - xw, xk = xw + 0.45 * Lh;
+  const hz = sec.z * body;
+  const pw = 0.19 * Lh / 0.85; // palm half width (heads)
+  const palm = [[xw, hz - 0.14 * limb], [xw + 0.22 * Lh, hz - pw * 1.02], [xk + 0.02 * Lh, hz - pw * 0.98], [xk + 0.04 * Lh, hz + pw * 0.95],
+    [xw + 0.3 * Lh, hz + pw * 1.02], [xw + 0.12 * Lh, hz + pw * 0.95], [xw, hz + 0.13 * limb]];
+  const FZ = [0.72, 0.24, -0.24, -0.7], FL = [0.52, 0.56, 0.53, 0.42], FW = [0.105, 0.11, 0.1, 0.085], SP = [0.035, 0.01, -0.012, -0.04];
+  const fingers = FZ.map((fz, f) => capsule([xk - 0.06 * Lh, hz + fz * pw], [xk + FL[f] * Lh, hz + fz * pw + SP[f] * Lh], FW[f] * Lh * 0.42, FW[f] * Lh * 0.34));
+  const tb = [xw + 0.16 * Lh, hz + pw * 0.75], tdir = [0.55, 0.83];
+  const thumb = capsule(tb, [tb[0] + tdir[0] * 0.44 * Lh, tb[1] + tdir[1] * 0.44 * Lh], 0.075 * Lh, 0.05 * Lh);
+  const fb = body;
+  const sole = [[0.28, -0.28], [0.4, -0.22], [0.43, 0.05], [0.455, 0.3], [0.49, 0.5], [0.47, 0.6], [0.3, 0.63], [0.12, 0.64], [0.1, 0.5], [0.14, 0.3], [0.165, 0.05], [0.17, -0.2]].map(([x, z]) => [x * fb, z * fb]);
+  const TOES = [[[0.17, 0.58], [0.16, 0.88], 0.058], [[0.265, 0.6], [0.275, 0.84], 0.033], [[0.335, 0.58], [0.35, 0.8], 0.031], [[0.4, 0.55], [0.42, 0.75], 0.029], [[0.455, 0.5], [0.475, 0.68], 0.027]];
+  const toes = TOES.map(([a, b, r]) => capsule([a[0] * fb, a[1] * fb], [b[0] * fb, b[1] * fb], r * fb, r * fb * 0.9));
 
   // ---- to document coordinates ----
   const FX = 900, SX = FX + (tip + 0.9) * U + 0.8 * U, H = n * U, TZ = H + 1.9 * U;
   const doc = createDoc();
   const P = (pts, closed, opts) => doc.paths.push(newPath(pts, { closed, ...opts }));
+  const ell = (cx, cy, rx, ry) => Array.from({ length: 20 }, (_, i) => [cx + rx * Math.cos((i / 20) * 2 * Math.PI), cy + ry * Math.sin((i / 20) * 2 * Math.PI)]);
   const toFront = (pts) => pts.map(([x, y, c]) => [FX + x * U, y * U, c]);
   P(catmull(toFront(front), true).map((p) => p.slice(0, 2)), true, { role: 'line', view: 'front' });
   P(catmull(side.map(([z, y, c]) => [SX - z * U, y * U, c]), true), true, { role: 'line', view: 'side' });
@@ -162,14 +185,29 @@ export function buildFigure(key) {
     secPts.push([SX - (sec.z * body + sec.rz * limb * Math.cos(t)) * U, Y(sec.y) * U + sec.ry * limb * Math.sin(t) * U]);
   }
   P(secPts, true, { role: 'section', view: 'side', color: '#0e7d89', part: 'arm' });
+  const plan = (pts, s, smooth = true) => { const q = pts.map(([x, z]) => [FX + s * x * U, TZ + z * U]); return smooth ? catmull(q, true) : q; };
   for (const s of [1, -1]) {
-    P(catmull(hand.map(([x, z]) => [FX + s * x * U, TZ + z * U]), true), true, { role: 'line', view: 'top' });
-    P(catmull(foot.map(([x, z]) => [FX + s * x * U, TZ + z * U]), true), true, { role: 'line', view: 'top' });
+    P(plan(palm, s), true, { role: 'line', view: 'top' });
+    for (const f of [...fingers, thumb, ...toes]) P(plan(f, s, false), true, { role: 'line', view: 'top' });
+    P(plan(sole, s), true, { role: 'line', view: 'top' });
   }
+  // face features in the front view and the profile (head units stay the same at every age)
+  const faceCol = '#b0587a', fopt = { role: 'feature', color: faceCol, group: 'face' };
+  const hx = (x) => FX + x * U, hy = (y) => y * U;
+  for (const s of [1, -1]) {
+    P(ell(hx(s * 0.13), hy(0.5), 0.065 * U, 0.027 * U), true, { ...fopt, view: 'front' });
+    P(catmull([[hx(s * 0.05), hy(0.44)], [hx(s * 0.13), hy(0.415)], [hx(s * 0.21), hy(0.43)]], false), false, { ...fopt, view: 'front' });
+  }
+  P(catmull([[hx(-0.06), hy(0.7)], [hx(0), hy(0.725)], [hx(0.06), hy(0.7)]], false), false, { ...fopt, view: 'front' });
+  P(catmull([[hx(-0.1), hy(0.8)], [hx(-0.04), hy(0.81)], [hx(0), hy(0.805)], [hx(0.04), hy(0.81)], [hx(0.1), hy(0.8)]], false), false, { ...fopt, view: 'front' });
+  const sx = (z) => SX - z * U;
+  P(ell(sx(0.37), hy(0.5), 0.035 * U, 0.024 * U), true, { ...fopt, view: 'side' });
+  P(catmull([[sx(0.3), hy(0.43)], [sx(0.38), hy(0.415)], [sx(0.43), hy(0.43)]], false), false, { ...fopt, view: 'side' });
+  P(ell(sx(-0.1), hy(0.57), 0.07 * U, 0.12 * U), true, { ...fopt, view: 'side' });
+  P(catmull([[sx(0.38), hy(0.81)], [sx(0.44), hy(0.8)]], false), false, { ...fopt, view: 'side' });
   // centre lines
   P([[FX, 0.1 * U], [FX, H - 0.05 * U]], false, { role: 'axis', view: 'front', color: '#d9822b' });
   // a few feature marks to show tags
-  const ell = (cx, cy, rx, ry) => Array.from({ length: 20 }, (_, i) => [cx + rx * Math.cos((i / 20) * 2 * Math.PI), cy + ry * Math.sin((i / 20) * 2 * Math.PI)]);
   const kneeY = Y(5.85) * U, kneeX = 0.3 * body * U;
   for (const s of [1, -1]) P(ell(FX + s * kneeX, kneeY, 0.1 * body * U, 0.14 * U * (marks[6] - marks[5]) / 2), true, { role: 'feature', view: 'front', color: '#d9463b', group: 'kneecaps' });
   if (B.features === 'male') {

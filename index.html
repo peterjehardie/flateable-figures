@@ -180,7 +180,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
         <label class="toggle"><input type="checkbox" data-show3d="cage" checked>cage</label>
         <label class="toggle"><input type="checkbox" data-show3d="loops" checked>loops</label>
         <label class="toggle"><input type="checkbox" data-show3d="drawings" checked>drawings</label>
-        <button class="btn" id="btn-run" aria-pressed="true">Pause</button>
+        <button class="btn primary" id="btn-run" aria-pressed="false">Inflate</button>
       </div>
       <div class="stage" id="stage3d">
         <canvas id="c3d"></canvas>
@@ -261,10 +261,25 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <div class="row"><label>Vertices around each ring</label><div class="seg" id="ringN"><button data-n="8">8</button><button data-n="16">16</button><button data-n="24">24</button></div></div>
           <div class="slider"><label for="rings">Loops per segment</label><span class="val" id="rings-val"></span><input type="range" id="rings" min="0" max="5" step="1" value="2"></div>
           <div class="slider"><label for="headRings">Loops in the head</label><span class="val" id="headRings-val"></span><input type="range" id="headRings" min="0" max="5" step="1" value="2"></div>
-          <div class="slider"><label for="handRings">Loops in hands</label><span class="val" id="handRings-val"></span><input type="range" id="handRings" min="0" max="4" step="1" value="1"></div>
-          <div class="slider"><label for="footRings">Loops in feet</label><span class="val" id="footRings-val"></span><input type="range" id="footRings" min="0" max="4" step="1" value="1"></div>
           <label class="toggle"><input type="checkbox" id="jointLoops" checked>joint bands at knees, elbows and wrists</label>
-          <div class="slider"><label for="level">Subdivision level</label><span class="val" id="level-val"></span><input type="range" id="level" min="0" max="3" step="1" value="2"></div>
+        </div>
+        <div class="group">
+          <h3>Hands and feet</h3>
+          <label class="toggle"><input type="checkbox" id="digits" checked>separate fingers, thumb and toes</label>
+          <div class="slider"><label for="fingerRings">Loops per finger and thumb</label><span class="val" id="fingerRings-val"></span><input type="range" id="fingerRings" min="1" max="5" step="1" value="3"></div>
+          <div class="slider"><label for="toeRings">Loops per toe</label><span class="val" id="toeRings-val"></span><input type="range" id="toeRings" min="1" max="3" step="1" value="1"></div>
+          <div class="slider"><label for="footRings">Loops along the foot</label><span class="val" id="footRings-val"></span><input type="range" id="footRings" min="1" max="5" step="1" value="2"></div>
+          <div class="slider"><label for="handRings">Loops in a mitten hand (fingers off)</label><span class="val" id="handRings-val"></span><input type="range" id="handRings" min="0" max="4" step="1" value="1"></div>
+          <p class="hint">The round 8m-vertex wrist widens to the flat palm, and again at the knuckles, through <b>1-to-3 units</b>: one edge becomes three, with a 3-edge and a 5-edge pole. Read the other way it is the usual 3-to-1 reduction from the fingers down to the wrist. Units never touch, so there are no 6-edge poles. Fingers are separated by web faces; the thumb leaves the side of the palm near the wrist. The foot leaves the front of the ankle and widens twice for the toes.</p>
+        </div>
+        <div class="group">
+          <h3>Face</h3>
+          <label class="toggle"><input type="checkbox" id="face" checked>face loops (a loop round the face, two round each eye, two round the mouth)</label>
+          <p class="hint">Head rings sit at Loomis's face heights: mouth, nose base, eyes, brow. The loops are insets of face blocks. Eyes need 16 or more vertices round each ring.</p>
+        </div>
+        <div class="group">
+          <h3>Resolution</h3>
+          <div class="slider"><label for="level">Subdivision level</label><span class="val" id="level-val"></span><input type="range" id="level" min="0" max="3" step="1" value="1"></div>
         </div>
         <div class="group">
           <h3>Layout</h3>

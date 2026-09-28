@@ -19,9 +19,9 @@ const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '–');
 const app = {
   doc: createDoc(),
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
-  params: { N: 8, rings: 2, headRings: 2, handRings: 1, footRings: 1, jointLoops: true, shrink: 0.5, level: 2 },
+  params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true },
   prm: { pressure: 1, tension: 1, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1 },
-  steps: 6, running: true, settled: false, gapFrac: 0.012, pinsOn: true,
+  steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
   shading: 'clay', css: {}, bgImage: null,
 };
@@ -81,6 +81,7 @@ function rebuildModel() {
   app.sim.computeNormals();
   app.settled = false;
   app.stillFrames = 0;
+  setRunning(false);
   updateTags();
   updatePins();
   applyShading();
@@ -193,7 +194,7 @@ function loop(t) {
     app.v3.update(sim.P, sim.N);
     frameNo++;
     if (frameNo % 12 === 0) updateTags();
-    if (sim.lastMove < 4e-6 && sim.iter > 150) { if (++app.stillFrames > 30) { app.settled = true; refreshFit(); } }
+    if (sim.lastMove < 4e-6 && sim.iter > 150) { if (++app.stillFrames > 30) { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); } }
     else app.stillFrames = 0;
     if (t - lastFit > 450) { lastFit = t; refreshFit(); }
     app.v2.dirty = true;
@@ -203,7 +204,15 @@ function loop(t) {
   if (frameNo % 20 === 0) statusLine();
 }
 
+// inflation only runs when asked: the Inflate button, or Deflate and reinflate
 function wake() { app.settled = false; app.stillFrames = 0; }
+function setRunning(on) {
+  app.running = on;
+  if (on) wake();
+  $('btn-run').textContent = on ? 'Stop' : 'Inflate';
+  $('btn-run').setAttribute('aria-pressed', String(on));
+  statusLine();
+}
 
 function statusLine() {
   const sim = app.sim;
@@ -211,7 +220,7 @@ function statusLine() {
   const f = app.fit || {};
   const cover = f.front ? `front <b>${fmt(100 * f.front.cover, 0)}%</b>` : '';
   const side = f.side ? ` side <b>${fmt(100 * f.side.cover, 0)}%</b>` : '';
-  const state = !app.running ? 'paused' : app.settled ? 'settled' : 'inflating';
+  const state = app.running ? 'inflating' : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
   setStatus(`<b>${sim.mesh.quads.length / 4}</b> quads · ${cover}${side} · ${state}`, true);
 }
 function setStatus(s, html) { if (html) $('status').innerHTML = s; else $('status').textContent = s; }
@@ -639,6 +648,8 @@ const SLIDERS = {
   rings: { get: () => app.params.rings, set: (v) => { app.params.rings = v; scheduleModel(); } },
   headRings: { get: () => app.params.headRings, set: (v) => { app.params.headRings = v; scheduleModel(); } },
   handRings: { get: () => app.params.handRings, set: (v) => { app.params.handRings = v; scheduleModel(); } },
+  fingerRings: { get: () => app.params.fingerRings, set: (v) => { app.params.fingerRings = v; scheduleModel(); } },
+  toeRings: { get: () => app.params.toeRings, set: (v) => { app.params.toeRings = v; scheduleModel(); } },
   footRings: { get: () => app.params.footRings, set: (v) => { app.params.footRings = v; scheduleModel(); } },
   level: { get: () => app.params.level, set: (v) => { app.params.level = v; scheduleModel(); } },
   pressure: { get: () => app.prm.pressure, set: (v) => { app.prm.pressure = v; wake(); } },
@@ -658,6 +669,8 @@ function syncControls() {
     $(id + '-val').textContent = s.show ? s.show(+el.value) : fmtSlider(+el.value);
   }
   $('jointLoops').checked = app.params.jointLoops;
+  $('digits').checked = app.params.digits;
+  $('face').checked = app.params.face;
   $('constrain').checked = app.prm.constrain;
   $('symmetry').checked = app.prm.symmetry;
   for (const b of $('ringN').querySelectorAll('button')) b.setAttribute('aria-pressed', String(+b.dataset.n === app.params.N));
@@ -669,16 +682,13 @@ function bindControls() {
     $(id).addEventListener('input', (e) => { const v = +e.target.value; $(id + '-val').textContent = s.show ? s.show(v) : fmtSlider(v); s.set(v); });
   }
   $('jointLoops').onchange = (e) => { app.params.jointLoops = e.target.checked; scheduleModel(); };
+  $('digits').onchange = (e) => { app.params.digits = e.target.checked; scheduleModel(); };
+  $('face').onchange = (e) => { app.params.face = e.target.checked; scheduleModel(); };
   $('constrain').onchange = (e) => { app.prm.constrain = e.target.checked; wake(); };
   $('symmetry').onchange = (e) => { app.prm.symmetry = e.target.checked; wake(); };
   $('ringN').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; app.params.N = +b.dataset.n; syncControls(); scheduleModel(10); };
-  $('btn-restart').onclick = () => rebuildModel();
-  $('btn-run').onclick = () => {
-    app.running = !app.running;
-    $('btn-run').textContent = app.running ? 'Pause' : 'Run';
-    $('btn-run').setAttribute('aria-pressed', String(app.running));
-    wake();
-  };
+  $('btn-restart').onclick = () => { rebuildModel(); setRunning(true); };
+  $('btn-run').onclick = () => setRunning(!app.running);
   // tabs
   document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => {
     document.querySelectorAll('.tab').forEach((o) => o.setAttribute('aria-selected', String(o === t)));
