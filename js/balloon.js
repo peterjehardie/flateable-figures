@@ -100,6 +100,28 @@ export class Balloon {
       Lap[3 * i] = sx / cnt; Lap[3 * i + 1] = sy / cnt; Lap[3 * i + 2] = sz / cnt; E2[i] = Math.min(e2 / cnt, 2 * emin);
     }
     const fair = prm.fair ?? 0.03;
+    const B = 0.8;
+    // Pressure, as a push per vertex along its normal. Body: a steady push that fades out as the
+    // vertex reaches its rounded profile ("inflate until it matches"). Hands and feet: a gentle
+    // push balanced against tension (they are built close to shape, gaps of a few mm).
+    if (!this.PD || this.PD.length !== n) { this.PD = new Float64Array(n); this.PD2 = new Float64Array(n); }
+    let PD = this.PD, PD2 = this.PD2;
+    for (let i = 0; i < n; i++) {
+      if (this.ext[i]) { PD[i] = Math.min(0.5 * prm.pressure * this.pm[i] * B * E2[i] / (2 * rref[i]), 0.12 * stepLen); continue; }
+      const sp = this.profileS(P[3 * i], P[3 * i + 1], P[3 * i + 2], this.cls[i], prm);
+      const reach = sp < 0 ? 1 : sp < 0.95 ? 1 : sp < 0.995 ? (0.995 - sp) / 0.045 : 0;
+      PD[i] = prm.pressure * this.pm[i] * stepLen * reach;
+    }
+    // Smooth the push over neighbours so neighbouring vertices move together: small quads (eye and
+    // mouth loops, finger webs) travel with their surroundings instead of being overrun and folded.
+    for (let it = 0; it < 4; it++) {
+      for (let i = 0; i < n; i++) {
+        let a = 0;
+        for (let k = off[i]; k < off[i + 1]; k++) a += PD[nb[k]];
+        PD2[i] = 0.5 * PD[i] + (0.5 * a) / (off[i + 1] - off[i]);
+      }
+      const t = PD; PD = PD2; PD2 = t;
+    }
     for (let i = 0; i < n; i++) {
       const k0 = off[i], k1 = off[i + 1], cnt = k1 - k0;
       const px = P[3 * i], py = P[3 * i + 1], pz = P[3 * i + 2];
@@ -116,14 +138,12 @@ export class Balloon {
       // Pressure is scaled by e^2 / (2 r) so a free sphere settles near r = rref * T / P.
       // (A true mean-curvature tension with constant pressure behaves like a soap bubble:
       // anything smaller than its target radius collapses.)
-      const B = 0.8;
-      let f = prm.pressure * this.pm[i] * B * e2 / (2 * rref[i]) + prm.tension * this.tm[i] * B * ln;
-      // hands and feet are built close to shape and have gaps of a few mm between fingers and
-      // toes: they get a slow, gentle fit so neighbouring surfaces can't be pushed through each other
+      // tension: umbrella smoothing along the normal (rubber-like, stable); the rounding itself
+      // comes from the rounded-profile constraint
       const ext = this.ext[i];
-      const lim = ext ? Math.min(0.06 * Math.sqrt(e2), 0.12 * stepLen) : Math.min(0.25 * Math.sqrt(e2), stepLen);
-      if (ext) f *= 0.5;
-      f = clamp(f, -lim, lim);
+      const tl = 0.3 * Math.sqrt(e2);
+      const ten = clamp(prm.tension * this.tm[i] * B * ln * (ext ? 0.5 : 1), -tl, tl);
+      const f = ext ? clamp(PD[i] + ten, -0.12 * stepLen, 0.12 * stepLen) : clamp(PD[i] + ten, -stepLen, stepLen);
       const bn = -fair * (bx * nx + by * ny + bz * nz);
       let dx = (f + bn) * nx + prm.relax * tx, dy = (f + bn) * ny + prm.relax * ty, dz = (f + bn) * nz + prm.relax * tz;
       const ax = this.axis[i];
@@ -142,10 +162,27 @@ export class Balloon {
       for (let c = 0; c < 3; c++) P[3 * i + c] += 0.5 * (pin.p[c] - P[3 * i + c]);
     }
     // net movement after the hull has pushed back: what "settled" is judged on
-    let moved = 0;
-    for (let i = 0; i < 3 * n; i++) moved += Math.abs(P[i] - this.prev[i]);
-    this.lastMove = moved / n / H;
+    // judged on the body: toe tips resting on the floor keep a harmless shimmer
+    let moved = 0, cnt = 0;
+    for (let i = 0; i < n; i++) {
+      if (this.ext[i]) continue;
+      moved += Math.abs(P[3 * i] - this.prev[3 * i]) + Math.abs(P[3 * i + 1] - this.prev[3 * i + 1]) + Math.abs(P[3 * i + 2] - this.prev[3 * i + 2]);
+      cnt++;
+    }
+    this.lastMove = moved / Math.max(cnt, 1) / H;
     this.iter++;
+  }
+
+  // Where a point sits relative to its rounded profile: < 1 inside, 1 on it; -1 when there is none.
+  profileS(x, y, z, c, prm) {
+    const pe = prm.profile;
+    if (!pe) return -1;
+    const M = this.ctx.measure;
+    let pr, u, v;
+    if (c === 1 || c === 2) { pr = M.profileAt(c === 1 ? 'arm1' : 'arm-1', x); u = (y - pr[0]) / pr[1]; v = (z - pr[2]) / pr[3]; }
+    else { pr = M.profileAt(c === 3 ? 1 : c === 4 ? -1 : 'trunk', y); u = (x - pr[0]) / pr[1]; v = (z - pr[2]) / pr[3]; }
+    const q = Math.pow(Math.pow(Math.abs(u), pe) + Math.pow(Math.abs(v), pe), 1 / pe);
+    return isFinite(q) ? q : -1;
   }
 
   constrain(prm) {

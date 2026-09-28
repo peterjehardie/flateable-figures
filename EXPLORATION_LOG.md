@@ -49,3 +49,11 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 
 - The user saw boxy cross-sections. Cause: the balloon was only held by the two drawings, so pressure filled the corners of the box they allow (front width × side depth), which is the visual hull. Silhouette fill read 100% because corners don't show in either view.
 - Added the rounded profile as a constraint: per height (trunk, each leg) and per point along the arms, a table of that box; each vertex is kept inside the superellipse that fits it (exponent 2.2 by default; 2 = ellipse; the far end of the slider switches it off). It touches the outlines at their extremes, so the silhouettes still fill (99/99%). Hands and feet are left to the top view. Cross-section plots at chest, waist, hip, thigh and calf confirm boxes before, rounded profiles now.
+
+## 2026-09-28 — head and waist "shrinking" on Inflate
+
+- Traced widths per step. The waist filled its box in ~60 steps, then contracted to ~92% over a few hundred (tension, still doing the rounding, won once the first push was spent). The head inflated ~10× slower than the body (finer quads from the face loops, and pressure scaled with quad size), so it looked like it shrank while the body ballooned.
+- Now: the rounded-profile constraint does the rounding. Pressure is a steady push that fades out as each vertex reaches its profile ("inflate until it matches"). Tension is plain smoothing (default 0.5).
+  - A constant push crumpled the face loops and toes: big quads outran the tiny loops next to them.
+  - Fixed by smoothing the pressure field over neighbours (4 passes), so neighbours move together.
+- Result: head and waist reach 99% of their box within 15–30 steps and hold. Fill 99/98%. Settling is judged on the body only (toe tips on the floor shimmer harmlessly).

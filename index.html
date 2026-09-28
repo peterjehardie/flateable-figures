@@ -294,8 +294,8 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <h3>Inflation</h3>
           <div class="btn-row"><button class="btn primary" id="btn-restart">Deflate and reinflate</button></div>
           <div class="slider"><label for="pressure">Pressure</label><span class="val" id="pressure-val"></span><input type="range" id="pressure" min="0" max="3" step="0.05" value="1"></div>
-          <div class="slider"><label for="tension">Surface tension (roundness)</label><span class="val" id="tension-val"></span><input type="range" id="tension" min="0" max="3" step="0.05" value="1"></div>
-          <p class="hint">Where the balloon is free, it curves with a radius of about tension ÷ pressure × the part's own radius. Low tension fills the hull into its boxy corners, high tension keeps limbs round.</p>
+          <div class="slider"><label for="tension">Surface smoothing (tension)</label><span class="val" id="tension-val"></span><input type="range" id="tension" min="0" max="2" step="0.05" value="0.5"></div>
+          <p class="hint">Pressure pushes every part outward at the same speed until it reaches its rounded profile, then lets go. The push is smoothed across neighbours so fine loops (eyes, mouth, finger webs) travel with their surroundings. Tension only smooths the surface. Hands and feet, built close to shape, get a gentler fit.</p>
           <div class="slider"><label for="profile">Cross-section shape</label><span class="val" id="profile-val"></span><input type="range" id="profile" min="2" max="12" step="0.1" value="2.2"></div>
           <p class="hint">By default every cross-section inflates into a rounded profile that just fits the box the two drawings allow: it touches the front outline at its sides and the side outline front and back, but not the box's corners. 2 is an ellipse; higher values square it off; the far end lets the balloon fill the whole box. Hands and feet are left to the top view.</p>
           <div class="slider"><label for="relax">Even out quads</label><span class="val" id="relax-val"></span><input type="range" id="relax" min="0" max="0.8" step="0.02" value="0.3"></div>

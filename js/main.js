@@ -20,7 +20,7 @@ const app = {
   doc: createDoc(),
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
   params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true },
-  prm: { pressure: 1, tension: 1, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2 },
+  prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2 },
   steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
   shading: 'clay', css: {}, bgImage: null,
@@ -194,7 +194,7 @@ function loop(t) {
     app.v3.update(sim.P, sim.N);
     frameNo++;
     if (frameNo % 12 === 0) updateTags();
-    if (sim.lastMove < 4e-6 && sim.iter > 150) { if (++app.stillFrames > 30) { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); } }
+    if (sim.lastMove < 2.5e-5 && sim.iter > 60) { if (++app.stillFrames > 30) { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); } }
     else app.stillFrames = 0;
     if (t - lastFit > 450) { lastFit = t; refreshFit(); }
     app.v2.dirty = true;
