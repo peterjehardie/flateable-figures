@@ -3,7 +3,7 @@
 
 export function computeFit(sim, frame, masks) {
   const out = {};
-  for (const view of ['front', 'side']) {
+  for (const view of ['front', 'side', 'top']) {
     const m = masks[view];
     if (!m) continue;
     const cv = document.createElement('canvas');
@@ -13,11 +13,13 @@ export function computeFit(sim, frame, masks) {
     const P = sim.P, Q = sim.mesh.quads;
     const px = new Float32Array(sim.n * 2);
     for (let i = 0; i < sim.n; i++) {
-      const [xd, yd] = view === 'front' ? frame.fd(P[3 * i], P[3 * i + 1]) : frame.sd(P[3 * i + 2], P[3 * i + 1]);
+      const [xd, yd] = view === 'front' ? frame.fd(P[3 * i], P[3 * i + 1]) : view === 'side' ? frame.sd(P[3 * i + 2], P[3 * i + 1]) : frame.td(P[3 * i], P[3 * i + 2]);
       px[2 * i] = (xd - m.x0) / m.cell; px[2 * i + 1] = (yd - m.y0) / m.cell;
     }
     // each quad as its own path: overlapping front/back faces must not cancel out
     for (let f = 0; f < Q.length; f += 4) {
+      // the top view only draws hands and feet, so only they are compared there
+      if (view === 'top' && !(sim.ext[Q[f]] && sim.ext[Q[f + 1]] && sim.ext[Q[f + 2]] && sim.ext[Q[f + 3]])) continue;
       ctx.beginPath();
       ctx.moveTo(px[2 * Q[f]], px[2 * Q[f] + 1]);
       ctx.lineTo(px[2 * Q[f + 1]], px[2 * Q[f + 1] + 1]);

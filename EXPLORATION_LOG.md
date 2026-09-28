@@ -21,3 +21,10 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 - The 1.2% gap closing, tuned for the rough sketch, sealed the thigh gap on clean vector art. Gap default is now per source: 0.3% for vector, 1.2% for traced images.
 - Loop pull onto the belt line was on in the sample and pinched the hips. Now off by default.
 - Remaining: the hips just above the crotch are under-filled in the front view (the bottom trunk ring has to host both leg openings).
+
+## 2026-09-28 — Loomis-based figure generator, top view, waist fix
+
+- **Waist/hip under-fill, diagnosed.** Every vertex of a ring shared one reference radius, the ring's mean radius. A wide, shallow section (pelvis about 18 × 10 cm) needs a curve of about 5.5 cm at its sides to touch the front outline, so the balloon rounded off short of it. The same flaw hit every flat section (chest sides, knees, hands). Fixed by giving each vertex the curvature radius of the ring's ellipse at its angle, so the default profile is the ellipse inscribed in the front-width × side-depth box. Fill on the adult went from 93/96% to 99/99%.
+- **Remaining junction weakness.** On the 1-year-old (short, wide pelvis) a band above the crotch stays about 5% under-filled: the single bottom trunk ring has to open onto both legs. The first leg ring now scales with leg length rather than a fixed 4% of height, which helped a little.
+- **Reference figures.** The hand-edited SVG sample was replaced by `js/figure.js`: adult male and female authored in head units after Loomis; children at 15, 10, 5, 3 and 1 year derived from the male by remapping landmark heights and narrowing the body. Each preset has T-pose front, left-facing side, and a top view of hands and feet.
+- **Top view.** It shares the front view's scale and x axis. Its depth origin is aligned automatically by matching the feet to the foot seen in the side view. It holds only hand and foot vertices, in (x, z). Hand depth comes from it instead of the arm cross-section. The hand is still a mitten tube, so the thumb in the plan outline is not reached.

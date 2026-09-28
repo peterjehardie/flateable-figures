@@ -34,7 +34,12 @@ export class Frame {
     const f = doc.views.front, s = doc.views.side;
     this.F = { s: this.H / Math.max(1e-6, f.floor - f.top), ax: f.axis, fl: f.floor };
     this.S = { s: this.H / Math.max(1e-6, s.floor - s.top), ax: s.axis, fl: s.floor, dir: s.facing === 'right' ? -1 : 1 };
+    const t = doc.views.top || { axisX: f.axis, axisZ: 0 };
+    this.T = { s: this.F.s, ax: t.axisX, az: t.axisZ }; // top view shares the front view's scale
   }
+  // top view: world (x, z), front of the body toward the bottom of the page
+  tw(xd, yd) { return [(xd - this.T.ax) * this.T.s, (yd - this.T.az) * this.T.s]; }
+  td(x, z) { return [x / this.T.s + this.T.ax, z / this.T.s + this.T.az]; }
   // front view: world (x, y)
   fw(xd, yd) { return [(xd - this.F.ax) * this.F.s, (this.F.fl - yd) * this.F.s]; }
   fd(x, y) { return [x / this.F.s + this.F.ax, this.F.fl - y / this.F.s]; }
@@ -61,6 +66,16 @@ export function makeSamplers(frame, masks) {
       const [xd, yd] = frame.sd(z, y);
       const r = sdGrad(masks.side, xd, yd);
       return { d: r.d * S.s, gz: -S.dir * r.gx, gy: -r.gy };
+    },
+    top(x, z) {
+      const [xd, yd] = frame.td(x, z);
+      const r = sdGrad(masks.top, xd, yd);
+      return { d: r.d * frame.T.s, gx: r.gx, gz: r.gy };
+    },
+    topCol(x) {
+      if (!masks.top) return [];
+      const xd = x / frame.T.s + frame.T.ax;
+      return colSpans(masks.top, xd).map(([a, b]) => [(a - frame.T.az) * frame.T.s, (b - frame.T.az) * frame.T.s]);
     },
     section(z, y) {
       const m = masks.section;
@@ -92,6 +107,8 @@ export function makeSamplers(frame, masks) {
 // ---------- automatic calibration from the masks ----------
 export function autoCalibrate(doc, masks) {
   const f = doc.views.front, s = doc.views.side;
+  if (!doc.views.top) doc.views.top = { axisX: f.axis, axisZ: 0, manual: {} };
+  const tv = doc.views.top;
   if (masks.front) {
     const bb = maskBBox(masks.front);
     if (bb) {
@@ -123,6 +140,27 @@ export function autoCalibrate(doc, masks) {
           if (sp.length) { acc += (sp[0][0] + sp[sp.length - 1][1]) / 2; n++; }
         }
         if (n) s.axis = acc / n;
+      }
+    }
+  }
+  if (!tv.manual.axisX) tv.axisX = f.axis;
+  // top view depth origin: line the feet up with the foot seen in the side view
+  if (masks.top && masks.side && !tv.manual.axisZ) {
+    const tb = maskBBox(masks.top), sb = maskBBox(masks.side);
+    if (tb && sb) {
+      const sp = rowSpans(masks.side, sb.y1 - (sb.y1 - sb.y0) * 0.01);
+      const feetRows = [];
+      for (let y = tb.y0; y <= tb.y1; y += masks.top.cell) {
+        const r = rowSpans(masks.top, y).filter(([a, b]) => Math.abs((a + b) / 2 - tv.axisX) < (f.floor - f.top) * 0.12);
+        if (r.length) feetRows.push(y);
+      }
+      if (sp.length && feetRows.length) {
+        const sS = doc.heightM / (s.floor - s.top), sF = doc.heightM / (f.floor - f.top);
+        const dir = s.facing === 'right' ? -1 : 1;
+        const za = dir * (s.axis - sp[0][0]) * sS, zb = dir * (s.axis - sp[sp.length - 1][1]) * sS;
+        const zc = (za + zb) / 2;
+        const yc = (feetRows[0] + feetRows[feetRows.length - 1]) / 2;
+        tv.axisZ = yc - zc / sF;
       }
     }
   }
@@ -326,8 +364,18 @@ export function makeMeasure(doc, masks, frame) {
     section = { cz, cy, rz: (hi[NP / 2] - lo[NP / 2]) / 2, ry: m.hh * frame.S.s, lo, hi, NP };
   }
   const ry0 = { 1: armAt(1, W.shoulderX * 1.25).ry, [-1]: armAt(-1, W.shoulderX * 1.25).ry };
+  const handDepth = (x) => {
+    const sp = smp.topCol(x);
+    if (!sp.length) return null;
+    const s = sp.reduce((p, c) => (c[1] - c[0] > p[1] - p[0] ? c : p));
+    return { cz: (s[0] + s[1]) / 2, rz: (s[1] - s[0]) / 2 };
+  };
   const arm = (sign, x) => {
     const a = armAt(sign, x);
+    if (masks.top && Math.abs(x) > W.wristX) {
+      const h = handDepth(sign * Math.abs(x));
+      if (h) return { cy: a.cy, ry: a.ry, cz: h.cz, rz: h.rz };
+    }
     if (section) {
       // true depth at the shoulder, tapering with the arm's thickness in the front view
       const k = clamp(a.ry / (ry0[sign] || a.ry), 0.25, 2);
@@ -343,7 +391,7 @@ export function makeMeasure(doc, masks, frame) {
     const lo = section.lo[i] + (section.lo[i + 1] - section.lo[i]) * t, hi = section.hi[i] + (section.hi[i + 1] - section.hi[i]) * t;
     return [section.cz + k * (lo - section.cz), section.cz + k * (hi - section.cz)];
   };
-  return { H, W, trunk, leg, arm, armAt, armDepthLimits, section, ry0, samplers: smp };
+  return { H, W, trunk, leg, arm, armAt, armDepthLimits, section, ry0, samplers: smp, hasTop: !!masks.top };
 }
 
 // A symmetric stand-in measure with the same stations: used to find mirror pairs.

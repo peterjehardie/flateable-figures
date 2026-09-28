@@ -283,7 +283,13 @@ export class View3D {
         for (let i = 0; i < seg.length - 1; i++) {
           for (const [xd, yd] of [seg[i], seg[i + 1]]) {
             if (view === 'front') { const [x, y] = frame.fw(xd, yd); pts.push(x, y, 0); }
-            else { const [z, y] = frame.sw(xd, yd); pts.push(0, y, z); }
+            else if (view === 'side') { const [z, y] = frame.sw(xd, yd); pts.push(0, y, z); }
+            else {
+              const [x, z] = frame.tw(xd, yd);
+              const st = doc.stations;
+              const handY = st ? ((st.armpit + st.shoulder) / 2) * frame.H : frame.H * 0.8;
+              pts.push(x, st && Math.abs(x) > st.wristX * frame.H * 0.9 ? handY : 0.002, z);
+            }
           }
         }
       }
@@ -295,6 +301,7 @@ export class View3D {
     };
     make('front', 0xd9463b, 0.55);
     make('side', 0x2f6fe0, 0.55);
+    make('top', 0x2f9e6a, 0.7);
     this.needs = true;
   }
 

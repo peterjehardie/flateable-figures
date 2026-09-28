@@ -12,8 +12,8 @@ import { bboxOf } from './util.js';
 const HULL_ROLES = new Set(['line', 'feature', 'section']);
 
 export function buildMasks(doc, { gapFrac = 0.012, res = 720 } = {}) {
-  const masks = { front: null, side: null, section: null };
-  for (const view of ['front', 'side']) {
+  const masks = { front: null, side: null, top: null, section: null };
+  for (const view of ['front', 'side', 'top']) {
     const ps = doc.paths.filter((p) => p.view === view && HULL_ROLES.has(p.role));
     if (!ps.some((p) => p.role === 'line')) continue;
     let b = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };

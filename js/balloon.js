@@ -35,6 +35,13 @@ export class Balloon {
         if (c === 0 || this.cls[v] === -1) this.cls[v] = c;
       }
     }
+    // hands and feet (1 = hand, 2 = foot): also held by the top view when there is one
+    this.ext = new Int8Array(n);
+    for (let f = 0; f < nF; f++) {
+      const part = mesh.fpart[f];
+      const e = part === 7 || part === 10 ? 1 : part === 13 || part === 16 ? 2 : 0;
+      if (e) for (let i = 0; i < 4; i++) this.ext[Q[4 * f + i]] = e;
+    }
     this.axis = Int8Array.from(mesh.anchorAxis);
     this.aval = Float64Array.from(mesh.anchorVal);
     this.pm = new Float64Array(n).fill(1); // per-vertex pressure multiplier (tags)
@@ -130,10 +137,18 @@ export class Balloon {
       const fr = smp.front(x, y);
       if (fr.d > 0) { x -= fr.d * fr.gx; y -= fr.d * fr.gy; }
       // side outline holds (z, y); arms use their own cross-section
+      const topHeld = this.ext[i] && M.hasTop;
+      if (topHeld) {
+        // plan view of hands and feet holds (x, z)
+        const t = smp.top(x, z);
+        if (t.d > 0) { x -= t.d * t.gx; z -= t.d * t.gz; }
+      }
       if (c === 1 || c === 2) {
         const sign = c === 1 ? 1 : -1;
         const a = M.armAt(sign, x);
-        if (sec) {
+        if (topHeld && this.ext[i] === 1) {
+          // hand depth comes from the top view
+        } else if (sec) {
           const [zlo, zhi] = M.armDepthLimits(sign, a, y);
           if (z < zlo) z = zlo; else if (z > zhi) z = zhi;
         } else {

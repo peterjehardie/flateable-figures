@@ -4,7 +4,7 @@
 
 import { HEIGHT_STATIONS, ARM_STATIONS, STATION_LABEL } from './stations.js';
 import { distToPolyline, simplify, bboxOf, parseColor, colorClass, colorName } from './util.js';
-import { newPath, isNearlyClosed } from './doc.js';
+import { newPath, isNearlyClosed, viewAtPoint } from './doc.js';
 import { PARTS } from './cage.js';
 
 const HIT = 7;
@@ -48,7 +48,7 @@ export class View2D {
   toScreen(x, y) { return [(x - this.view.ox) * this.view.s, (y - this.view.oy) * this.view.s]; }
   toDoc(sx, sy) { return [sx / this.view.s + this.view.ox, sy / this.view.s + this.view.oy]; }
   evDoc(e) { const r = this.canvas.getBoundingClientRect(); return this.toDoc(e.clientX - r.left, e.clientY - r.top); }
-  viewAt(x) { return x < this.app.doc.splitX ? 'front' : 'side'; }
+  viewAt(x, y) { return viewAtPoint(this.app.doc, x, y); }
 
   // ---------- hit testing on draggable guides ----------
   handles() {
@@ -75,6 +75,11 @@ export class View2D {
       }
     }
     out.push({ kind: 'split', x: sx, y0: b.y0, y1: b.y1 });
+    if (doc.splitY != null) {
+      out.push({ kind: 'splitY', y: doc.splitY, x0: b.x0 - 30, x1: sx });
+      const tv = doc.views.top;
+      if (tv) out.push({ kind: 'topz', y: tv.axisZ, x0: b.x0 - 30, x1: sx });
+    }
     return out;
   }
 
@@ -135,11 +140,11 @@ export class View2D {
       if (e.button === 1 || e.button === 2 || this.spaceDown) { this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: this.view.ox, oy: this.view.oy }; return; }
       if (this.tool === 'pen') { this.drag = { kind: 'pen', pts: [[x, y]] }; return; }
       if (this.tool === 'erase') { const p = this.hitPath(x, y); if (p) this.app.deletePath(p); return; }
-      if (this.tool === 'fill') { this.app.fillAt(this.viewAt(x), [x, y]); return; }
+      if (this.tool === 'fill') { this.app.fillAt(this.viewAt(x, y), [x, y]); return; }
       if (this.tool === 'landmark') {
         const hl = this.hitLandmark(x, y);
         if (hl) { this.drag = { kind: 'lm', ...hl }; this.app.selectLandmark(hl.l); return; }
-        this.app.placeLandmark(this.viewAt(x), [x, y]);
+        this.app.placeLandmark(this.viewAt(x, y), [x, y]);
         return;
       }
       // select tool
@@ -154,7 +159,7 @@ export class View2D {
     c.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const [x, y] = this.evDoc(e);
-      this.cursor = { x, y, view: this.viewAt(x) };
+      this.cursor = { x, y, view: this.viewAt(x, y) };
       this.app.onCursor(this.cursor);
       const d = this.drag;
       if (d && d.kind === 'pinch' && pointers.size === 2) {
@@ -228,7 +233,7 @@ export class View2D {
       ctx.globalAlpha = 1;
     }
     // hull fill and silhouette check
-    for (const view of ['front', 'side']) {
+    for (const view of ['front', 'side', 'top']) {
       const m = app.masks && app.masks[view];
       if (!m) continue;
       ctx.imageSmoothingEnabled = false;
@@ -342,6 +347,22 @@ export class View2D {
         ctx.setLineDash([]); ctx.globalAlpha = 1;
         continue;
       }
+      if (h.kind === 'splitY') {
+        ctx.strokeStyle = css.muted; ctx.globalAlpha = 0.35; ctx.setLineDash([2 * px, 6 * px]);
+        ctx.beginPath(); ctx.moveTo(h.x0, h.y); ctx.lineTo(h.x1, h.y); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 0.7; ctx.fillStyle = css.muted;
+        ctx.fillText('top view (hands and feet, seen from above) ↓', h.x0 + 2 * px, h.y + 13 * px);
+        ctx.globalAlpha = 1;
+        continue;
+      }
+      if (h.kind === 'topz') {
+        ctx.strokeStyle = css.ink; ctx.globalAlpha = 0.45; ctx.setLineDash([8 * px, 4 * px, 2 * px, 4 * px]);
+        ctx.beginPath(); ctx.moveTo(h.x0, h.y); ctx.lineTo(h.x1, h.y); ctx.stroke();
+        ctx.setLineDash([]); ctx.fillStyle = css.ink;
+        ctx.fillText('depth 0 · front is down the page', h.x0 + 2 * px, h.y - 3 * px);
+        ctx.globalAlpha = 1;
+        continue;
+      }
       if (h.kind === 'axis') {
         ctx.strokeStyle = css.ink; ctx.globalAlpha = 0.45; ctx.setLineDash([8 * px, 4 * px, 2 * px, 4 * px]);
         ctx.beginPath(); ctx.moveTo(h.x, h.y0); ctx.lineTo(h.x, h.y1); ctx.stroke();
@@ -378,6 +399,18 @@ export class View2D {
     const P = sim.P;
     const E = sim.mesh.cageEdges;
     ctx.lineWidth = 0.9 * px;
+    if (app.masks && app.masks.top) {
+      ctx.strokeStyle = css.meshLine; ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      for (let i = 0; i < E.length; i += 2) {
+        const a = E[i], b = E[i + 1];
+        if (!sim.ext[a] || !sim.ext[b] || sim.N[3 * a + 1] < -0.05) continue;
+        const [xa, ya] = fr.td(P[3 * a], P[3 * a + 2]), [xb, yb] = fr.td(P[3 * b], P[3 * b + 2]);
+        ctx.moveTo(xa, ya); ctx.lineTo(xb, yb);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
     for (const view of ['front', 'side']) {
       ctx.strokeStyle = css.meshLine;
       ctx.globalAlpha = 0.55;

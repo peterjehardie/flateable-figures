@@ -1,6 +1,7 @@
 // App controller: owns the document and the pipeline, wires the panels.
 
-import { createDoc, prepareImported, exportSVG, loadProjectSVG, ensureGroups, assignViews, defaultGroup, ROLES, newPath } from './doc.js';
+import { createDoc, prepareImported, exportSVG, loadProjectSVG, ensureGroups, assignViews, defaultGroup, ROLES, newPath, viewAtPoint } from './doc.js';
+import { buildFigure, PRESETS } from './figure.js';
 import { traceImageData } from './trace.js';
 import { buildMasks, calibrate, detectSection, buildModel } from './pipeline.js';
 import { Frame, HEIGHT_STATIONS, ARM_STATIONS, STATION_LABEL, canonStations, autoStations, sanitizeStations } from './stations.js';
@@ -46,7 +47,7 @@ function scheduleSave() { clearTimeout(tSave); tSave = setTimeout(autosave, 1500
 function makeMaskImages() {
   const hex = parseColor(app.css.accent) || { r: 14, g: 125, b: 137 };
   app.maskImgs = {};
-  for (const v of ['front', 'side']) if (app.masks[v]) app.maskImgs[v] = maskImage(app.masks[v], [hex.r, hex.g, hex.b]);
+  for (const v of ['front', 'side', 'top']) if (app.masks[v]) app.maskImgs[v] = maskImage(app.masks[v], [hex.r, hex.g, hex.b]);
   if (app.masks.section) app.maskImgs.section = maskImage(app.masks.section, [hex.r, hex.g, hex.b], 120);
 }
 
@@ -230,7 +231,7 @@ app.addPath = (pts, closed) => {
   const doc = app.doc;
   const bb = bboxOf(pts);
   const opts = penPathOpts(app.penColor);
-  const p = newPath(pts, { closed, color: app.penColor, ...opts, view: (bb.x0 + bb.x1) / 2 < doc.splitX ? 'front' : 'side' });
+  const p = newPath(pts, { closed, color: app.penColor, ...opts, view: viewAtPoint(doc, (bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2) });
   doc.paths.push(p);
   ensureGroups(doc);
   app.selected = p;
@@ -239,6 +240,12 @@ app.addPath = (pts, closed) => {
 };
 app.onCursor = (c) => {
   if (!c || !app.frame) { app.v3.setCursor(null); $('note2d').textContent = ''; return; }
+  if (c.view === 'top') {
+    const [x, z] = app.frame.tw(c.x, c.y);
+    app.v3.setCursor(null);
+    $('note2d').textContent = `top view · x ${fmt(x, 3)} m · z ${fmt(z, 3)} m (forward)`;
+    return;
+  }
   const t = app.frame.tFromDoc(c.view, c.y);
   const y = t * app.frame.H;
   app.v3.setCursor(y);
@@ -267,12 +274,19 @@ app.dragHandle = (h, x, y) => {
     app.v3.setDrawings(doc, app.frame);
   } else if (h.kind === 'split') {
     doc.splitX = x;
+  } else if (h.kind === 'splitY') {
+    doc.splitY = y;
+  } else if (h.kind === 'topz') {
+    doc.views.top.axisZ = y;
+    doc.views.top.manual.axisZ = true;
+    app.frame = new Frame(doc);
+    app.v3.setDrawings(doc, app.frame);
   }
   renderStations();
   scheduleModel(140);
 };
 app.dragHandleEnd = (h) => {
-  if (h.kind === 'split') { assignViews(app.doc); scheduleFull(10); return; }
+  if (h.kind === 'split' || h.kind === 'splitY') { assignViews(app.doc); scheduleFull(10); return; }
   doc_sanitize();
   scheduleModel(10);
 };
@@ -410,18 +424,17 @@ async function mergeView(src, view) {
 }
 
 async function loadSample(name) {
-  try {
-    const r = await fetch(`samples/${name}.svg`);
-    if (r.ok) { const { doc, meta } = loadProjectSVG(await r.text()); applyProjectMeta(meta); await setDoc(doc); return; }
-  } catch (e) { /* reported below */ }
-  toast('Could not load the sample ' + name);
+  // generated reference figures: clean vector outlines need almost no gap closing
+  app.gapFrac = 0.003;
+  syncControls();
+  await setDoc(buildFigure(name));
 }
 
 function projectSVG() {
   return exportSVG(app.doc, { params: app.params, prm: app.prm, gapFrac: app.gapFrac });
 }
 function autosave() {
-  try { localStorage.setItem('ff-project-v2', projectSVG()); } catch (e) { /* storage unavailable or full */ }
+  try { localStorage.setItem('ff-project-v3', projectSVG()); } catch (e) { /* storage unavailable or full */ }
 }
 function applyProjectMeta(meta) {
   if (!meta) return;
@@ -696,7 +709,7 @@ function bindControls() {
   $('btn-fit-st').onclick = () => { app.doc.stations = autoStations(app.doc, app.masks, app.frame); doc_sanitize(); scheduleModel(10); toast('Stations fitted to the drawing'); };
   $('btn-canon-st').onclick = () => { app.doc.stations = canonStations(app.doc.canon); setAuto(false); scheduleModel(10); toast(`Stations set to the ${app.doc.canon}-head canon`); };
   $('st-auto').onchange = (e) => { setAuto(e.target.checked); if (e.target.checked) scheduleFull(10); };
-  $('btn-cal-reset').onclick = () => { for (const v of ['front', 'side']) app.doc.views[v].manual = {}; fullRebuild(); };
+  $('btn-cal-reset').onclick = () => { for (const v of ['front', 'side', 'top']) if (app.doc.views[v]) app.doc.views[v].manual = {}; fullRebuild(); };
   $('btn-clear-section').onclick = () => {
     app.doc.sectionSeed = null; app.doc.sectionOff = true;
     for (const p of app.doc.paths) if (p.role === 'section') p.role = 'line';
@@ -718,7 +731,8 @@ function bindControls() {
   // files
   $('btn-open').onclick = () => $('file').click();
   $('file').onchange = (e) => { const f = e.target.files[0]; if (f) openFile(f); e.target.value = ''; };
-  $('sel-sample').onchange = async (e) => { const v = e.target.value; e.target.value = ''; if (v) { setStatus('loading sample…'); await loadSample(v); toast('Sample loaded'); } };
+  $('sel-sample').innerHTML = '<option value="">Reference figures…</option>' + Object.entries(PRESETS).map(([k, p]) => `<option value="${k}">${p.label}</option>`).join('');
+  $('sel-sample').onchange = async (e) => { const v = e.target.value; e.target.value = ''; if (v) { setStatus('building figure…'); await loadSample(v); toast(PRESETS[v].label + ' loaded'); } };
   $('btn-save').onclick = async () => {
     try { const r = await saveFile('flateable-figure.svg', new Blob([projectSVG()], { type: 'image/svg+xml' })); if (r === 'saved') toast('Project saved as SVG'); }
     catch (err) { toast('Save failed: ' + (err.message || err.code)); }
@@ -773,7 +787,7 @@ async function boot() {
   syncControls();
   requestAnimationFrame(loop);
   let saved = null;
-  try { saved = localStorage.getItem('ff-project-v2'); } catch (e) { saved = null; }
+  try { saved = localStorage.getItem('ff-project-v3'); } catch (e) { saved = null; }
   if (saved) {
     try {
       const { doc, meta } = loadProjectSVG(saved);
@@ -783,6 +797,6 @@ async function boot() {
       return;
     } catch (e) { /* fall through to the sample */ }
   }
-  await loadSample('ideal-8-heads');
+  await loadSample('male');
 }
 boot().catch((e) => { console.error(e); setStatus('Error: ' + e.message); });

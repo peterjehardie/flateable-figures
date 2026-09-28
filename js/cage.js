@@ -25,6 +25,15 @@ export const PART_CLASS = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4];
 
 // Place ring positions along one axis between stations, with optional joint bands
 // (extra loops just either side of a joint, where the mesh will bend).
+// Radius of curvature of the ellipse (a sin t, b cos t) at t. Wide, shallow sections need
+// tight curves at their sides to reach the outline; a single radius per ring rounds them off
+// short of it (the waist and hips were under-filled that way).
+function rho(a, b, t, mean) {
+  const c = Math.cos(t), s = Math.sin(t);
+  const r = Math.pow(a * a * c * c + b * b * s * s, 1.5) / Math.max(a * b, 1e-12);
+  return Math.min(Math.max(r, 0.2 * mean), 3 * mean);
+}
+
 function ringStations(stops, counts, jointOn, deltaFn) {
   const out = [{ v: stops[0].v, name: stops[0].name }];
   for (let i = 1; i < stops.length; i++) {
@@ -97,7 +106,7 @@ export function buildCage(M, P) {
     const ring = [];
     for (let i = 0; i < N; i++) {
       const th = (2 * Math.PI * i) / N;
-      ring.push(addV(sec.cx + s0 * sec.rx * Math.sin(th), y, sec.cz + s0 * sec.rz * Math.cos(th), 1, y, r));
+      ring.push(addV(sec.cx + s0 * sec.rx * Math.sin(th), y, sec.cz + s0 * sec.rz * Math.cos(th), 1, y, rho(sec.rx, sec.rz, th, r)));
     }
     return ring;
   });
@@ -133,7 +142,7 @@ export function buildCage(M, P) {
     [-1]: [...T[0].slice(N / 2), T[0][0], ...chain],
   };
   const lStops = [
-    { v: W.crotch - 0.04 * H, name: 'upper thigh' }, { v: W.knee, name: 'knee', joint: true },
+    { v: W.crotch - Math.min(0.04 * H, 0.2 * (W.crotch - W.knee)), name: 'upper thigh' }, { v: W.knee, name: 'knee', joint: true },
     { v: W.ankle, name: 'ankle', joint: false }, { v: 0.014 * H, name: 'sole' },
   ];
   const legYs = ringStations(lStops, [k, k + 1, P.footRings], P.jointLoops, delta);
@@ -150,7 +159,7 @@ export function buildCage(M, P) {
       const ring = [];
       for (let q = 0; q < N; q++) {
         const psi = (sign > 0 ? 0 : Math.PI) + (2 * Math.PI * q) / N;
-        ring.push(addV(sec.cx + s0 * sec.rx * Math.sin(psi), y, sec.cz + s0 * sec.rz * Math.cos(psi), 1, y, r));
+        ring.push(addV(sec.cx + s0 * sec.rx * Math.sin(psi), y, sec.cz + s0 * sec.rz * Math.cos(psi), 1, y, rho(sec.rx, sec.rz, psi, r)));
       }
       rings.push(ring);
       ringY.push(y);
@@ -196,7 +205,7 @@ export function buildCage(M, P) {
         const w = (2 * Math.PI * (q - a / 2)) / N;
         const y = sec.cy - s0 * sec.ry * Math.cos(w);
         const z = sec.cz - sign * s0 * sec.rz * Math.sin(w);
-        ring.push(addV(sign * x, y, z, 0, sign * x, r));
+        ring.push(addV(sign * x, y, z, 0, sign * x, rho(sec.rz, sec.ry, w, r)));
       }
       rings.push(ring);
       ringX.push(x);

@@ -36,7 +36,9 @@ export function createDoc() {
     views: {
       front: { top: 0, floor: 800, axis: 250, manual: {} },
       side: { top: 0, floor: 800, axis: 750, facing: 'left', manual: {} },
+      top: { axisX: 250, axisZ: 1000, manual: {} }, // plan view of hands and feet, same scale as the front
     },
+    splitY: null, // below this (and left of splitX) is the top view
     landmarks: [],
     groups: {}, // name -> { color, pressure, tension, loop, visible }
     paint: [], // painted tag dabs {group, p:[x,y,z], r, erase}
@@ -176,8 +178,13 @@ export function assignViews(doc) {
   for (const p of doc.paths) {
     if (p.role === 'guide') { p.view = 'both'; continue; }
     const bb = bboxOf(p.pts);
-    p.view = (bb.x0 + bb.x1) / 2 < doc.splitX ? 'front' : 'side';
+    p.view = viewAtPoint(doc, (bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2);
   }
+}
+
+export function viewAtPoint(doc, x, y) {
+  if (x >= doc.splitX) return 'side';
+  return doc.splitY != null && y > doc.splitY ? 'top' : 'front';
 }
 
 export function autoRoles(doc) {
@@ -245,7 +252,8 @@ export function prepareImported(doc, { keepRoles = false } = {}) {
     detectAxis(doc);
   } else {
     if (!doc.splitX) autoSplit(doc);
-    for (const p of doc.paths) if (!p.view) p.view = bboxOf(p.pts).x0 < doc.splitX ? 'front' : 'side';
+    for (const p of doc.paths) if (!p.view) { const bb = bboxOf(p.pts); p.view = viewAtPoint(doc, (bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2); }
+    if (!doc.views.top) doc.views.top = { axisX: doc.views.front.axis, axisZ: 0, manual: {} };
   }
   ensureGroups(doc);
 }
@@ -259,12 +267,12 @@ export function exportSVG(doc, extraMeta = {}) {
   const lines = [];
   lines.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${vb.join(' ')}" width="${vb[2]}" height="${vb[3]}">`);
   const meta = {
-    version: 1, splitX: doc.splitX, views: doc.views, landmarks: doc.landmarks, groups: doc.groups,
+    version: 1, splitX: doc.splitX, splitY: doc.splitY, figureKey: doc.figureKey, views: doc.views, landmarks: doc.landmarks, groups: doc.groups,
     paint: doc.paint, sectionSeed: doc.sectionSeed, sectionOff: doc.sectionOff, stations: doc.stations, stationsAuto: doc.stationsAuto, heightM: doc.heightM, canon: doc.canon, ...extraMeta,
   };
   lines.push(`<metadata id="ff-project">${escapeXML(JSON.stringify(meta))}</metadata>`);
   if (doc.bg && doc.bg.src) lines.push(`<image data-ff-bg="1" x="${doc.bg.x}" y="${doc.bg.y}" width="${doc.bg.w}" height="${doc.bg.h}" opacity="0.35" href="${doc.bg.src}"/>`);
-  for (const view of ['front', 'side', 'both']) {
+  for (const view of ['front', 'side', 'top', 'both']) {
     const ps = doc.paths.filter((p) => p.view === view);
     if (!ps.length) continue;
     lines.push(`<g id="${view}">`);
@@ -294,7 +302,7 @@ export function loadProjectSVG(text) {
   const hasRoles = paths.some((p) => p.role);
   for (const p of paths) if (p.role) p._roleFromFile = true;
   if (meta) {
-    for (const k of ['splitX', 'views', 'landmarks', 'groups', 'paint', 'sectionSeed', 'sectionOff', 'stations', 'stationsAuto', 'heightM', 'canon']) if (meta[k] !== undefined) doc[k] = meta[k];
+    for (const k of ['splitX', 'splitY', 'figureKey', 'views', 'landmarks', 'groups', 'paint', 'sectionSeed', 'sectionOff', 'stations', 'stationsAuto', 'heightM', 'canon']) if (meta[k] !== undefined) doc[k] = meta[k];
   }
   if (hasRoles) {
     for (const p of paths) if (!p.role) p.role = 'line';
