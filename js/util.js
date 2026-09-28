@@ -29,8 +29,9 @@ export function simplify(pts, eps) {
     const [ax, ay] = pts[a], [bx, by] = pts[b];
     const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1e-9;
     let md = -1, mi = -1;
+    const degenerate = Math.hypot(dx, dy) < 1e-9; // closed loop: start == end
     for (let i = a + 1; i < b; i++) {
-      const d = Math.abs((pts[i][0] - ax) * dy - (pts[i][1] - ay) * dx) / L;
+      const d = degenerate ? Math.hypot(pts[i][0] - ax, pts[i][1] - ay) : Math.abs((pts[i][0] - ax) * dy - (pts[i][1] - ay) * dx) / L;
       if (d > md) { md = d; mi = i; }
     }
     if (md > eps) { keep[mi] = 1; stack.push([a, mi], [mi, b]); }

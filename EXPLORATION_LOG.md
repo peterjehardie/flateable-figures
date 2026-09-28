@@ -12,3 +12,12 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - v2: umbrella smoothing along the normal plus pressure scaled by e²/(2r). Stable, settles in about 1,200 steps, 91% front and 89% side fill. Kept.
   - v3: a true mean-curvature tension with constant pressure (Laplace's law). It collapsed to 15% fill. This is soap-bubble behaviour: with constant pressure and constant tension, anything smaller than its target radius shrinks further. A rubber-like tension that rises with stretch (v2) is what makes inflation stable. Dropped.
 - **Open question from the user:** the mesh should be one single quad mesh starting from the front outline, not pieces. The current mesh is one closed piece, but it starts from a station-built cage placed inside the outline, not from a quad meshing of the outline itself.
+
+## 2026-09-28 — idealized sample replaces the user's sketch
+
+- The user's sketch was loose; treating it as exact input gave ~9.6-head proportions, an open shoulder box read as the arm section, and a chin gap. Replaced by a generated vector figure (`samples/make_ideal.py`, 8 heads, T-pose, left-facing side, closed arm section at the shoulder). The user's PNGs were removed from the app.
+- Closed SVG curves whose start equals their end collapsed to two points in the line simplifier. Fixed.
+- The centre line counted as a hull wall and sealed the gap between the legs (crotch detected at knee height). Removed from the hull.
+- The 1.2% gap closing, tuned for the rough sketch, sealed the thigh gap on clean vector art. Gap default is now per source: 0.3% for vector, 1.2% for traced images.
+- Loop pull onto the belt line was on in the sample and pinched the hips. Now off by default.
+- Remaining: the hips just above the crotch are under-filled in the front view (the bottom trunk ring has to host both leg openings).

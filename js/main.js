@@ -363,8 +363,16 @@ async function openFile(file) {
   setStatus('reading ' + file.name + '…');
   let doc;
   try {
-    if (/svg/.test(file.type) || /\.svg$/i.test(file.name)) doc = loadProjectSVG(await file.text()).doc;
-    else doc = await imageToDoc(await readAsDataURL(file));
+    // clean vector outlines need almost no gap closing; traced sketches need more
+    if (/svg/.test(file.type) || /\.svg$/i.test(file.name)) {
+      const r = loadProjectSVG(await file.text());
+      doc = r.doc;
+      app.gapFrac = (r.meta && r.meta.gapFrac) || 0.004;
+    } else {
+      doc = await imageToDoc(await readAsDataURL(file));
+      app.gapFrac = 0.012;
+    }
+    syncControls();
   } catch (e) {
     toast('Could not read that file: ' + e.message);
     return;
@@ -404,17 +412,16 @@ async function mergeView(src, view) {
 async function loadSample(name) {
   try {
     const r = await fetch(`samples/${name}.svg`);
-    if (r.ok) { await setDoc(loadProjectSVG(await r.text()).doc); return; }
-  } catch (e) { /* fall back to tracing the image */ }
-  const blob = await (await fetch(`samples/${name}.png`)).blob();
-  await setDoc(await imageToDoc(await readAsDataURL(blob)));
+    if (r.ok) { const { doc, meta } = loadProjectSVG(await r.text()); applyProjectMeta(meta); await setDoc(doc); return; }
+  } catch (e) { /* reported below */ }
+  toast('Could not load the sample ' + name);
 }
 
 function projectSVG() {
   return exportSVG(app.doc, { params: app.params, prm: app.prm, gapFrac: app.gapFrac });
 }
 function autosave() {
-  try { localStorage.setItem('ff-project', projectSVG()); } catch (e) { /* storage unavailable or full */ }
+  try { localStorage.setItem('ff-project-v2', projectSVG()); } catch (e) { /* storage unavailable or full */ }
 }
 function applyProjectMeta(meta) {
   if (!meta) return;
@@ -766,7 +773,7 @@ async function boot() {
   syncControls();
   requestAnimationFrame(loop);
   let saved = null;
-  try { saved = localStorage.getItem('ff-project'); } catch (e) { saved = null; }
+  try { saved = localStorage.getItem('ff-project-v2'); } catch (e) { saved = null; }
   if (saved) {
     try {
       const { doc, meta } = loadProjectSVG(saved);
@@ -776,6 +783,6 @@ async function boot() {
       return;
     } catch (e) { /* fall through to the sample */ }
   }
-  await loadSample('features');
+  await loadSample('ideal-8-heads');
 }
 boot().catch((e) => { console.error(e); setStatus('Error: ' + e.message); });

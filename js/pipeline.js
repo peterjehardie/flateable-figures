@@ -7,9 +7,9 @@ import { subdivide } from './subdiv.js';
 import { Balloon, mirrorMap } from './balloon.js';
 import { bboxOf } from './util.js';
 
-// Everything drawn except height lines and notes closes the outline: interior strokes
+// Everything drawn except height lines, notes and the centre line closes the outline: interior strokes
 // can't change what the outside flood reaches, and coloured strokes often seal gaps.
-const HULL_ROLES = new Set(['line', 'feature', 'axis', 'section']);
+const HULL_ROLES = new Set(['line', 'feature', 'section']);
 
 export function buildMasks(doc, { gapFrac = 0.012, res = 720 } = {}) {
   const masks = { front: null, side: null, section: null };
