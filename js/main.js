@@ -12,6 +12,7 @@ import { View3D } from './view3d.js';
 import { PARTS } from './cage.js';
 import { buildFace } from './face.js';
 import { buildDigits } from './digits.js';
+import { mirrorStroke, mirrorPts, symmetrizeFront } from './symmetry.js';
 import { initRigPanel } from './rigpanel.js';
 import { toOBJ, tagsJSON, makeZip, saveFile } from './exporter.js';
 import { bboxOf, parseColor, colorName, toHex } from './util.js';
@@ -24,6 +25,7 @@ const app = {
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
   params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true, faceRefine: true },
   prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2, faceDetail: true },
+  layer: 'line', backView: false, mirrorDraw: true,
   steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
   shading: 'clay', css: {}, bgImage: null,
@@ -248,7 +250,8 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add
 // ---------------- document actions (called by the 2D view) ----------------
 app.selectPath = (p) => { app.selected = p; renderSelCard(); app.v2.dirty = true; };
 app.deletePath = (p) => {
-  app.doc.paths = app.doc.paths.filter((q) => q !== p);
+  // a mirrored twin goes with it
+  app.doc.paths = app.doc.paths.filter((q) => q !== p && !(p.twin != null && q.id === p.twin) && !(q.twin != null && q.twin === p.id));
   if (app.selected === p) app.selected = null;
   renderSelCard();
   scheduleFull();
@@ -256,9 +259,24 @@ app.deletePath = (p) => {
 app.addPath = (pts, closed) => {
   const doc = app.doc;
   const bb = bboxOf(pts);
-  const opts = penPathOpts(app.penColor);
-  const p = newPath(pts, { closed, color: app.penColor, ...opts, view: viewAtPoint(doc, (bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2) });
+  const view = viewAtPoint(doc, (bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2);
+  // the active layer sets what the stroke is: outline, feature (grouped by pen colour) or note
+  const layer = app.layer || 'line';
+  let opts;
+  if (layer === 'feature') {
+    const o = penPathOpts(app.penColor);
+    opts = o.role === 'feature' ? { ...o, color: app.penColor } : { role: 'feature', group: 'marks', color: '#b0587a' };
+    if (view === 'front' && app.backView) opts.side = 'far';
+  } else opts = { role: layer, color: layer === 'line' ? '#1b1f27' : '#8a919c' };
+  let twin = null;
+  if (app.mirrorDraw && view === 'front' && layer !== 'note') {
+    const tol = 0.012 * (doc.views.front.floor - doc.views.front.top);
+    const r = mirrorStroke(pts, closed, doc.views.front.axis, tol, layer === 'line');
+    pts = r.pts; closed = r.closed; twin = r.twin;
+  }
+  const p = newPath(pts, { closed, ...opts, view });
   doc.paths.push(p);
+  if (twin) { const q = newPath(twin, { closed, ...opts, view }); q.twin = p.id; p.twin = q.id; doc.paths.push(q); }
   ensureGroups(doc);
   app.selected = p;
   renderSelCard();
@@ -724,7 +742,16 @@ function bindControls() {
   $('tools2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setTool(b.dataset.tool); };
   document.querySelectorAll('[data-show2d]').forEach((c) => (c.onchange = (e) => { app.v2.show[c.dataset.show2d] = e.target.checked; app.v2.dirty = true; }));
   $('btn-fit2d').onclick = () => app.v2.fit();
-  $('pen-color').oninput = (e) => { app.penColor = e.target.value; setTool('pen'); };
+  $('pen-color').oninput = (e) => { app.penColor = e.target.value; if (penPathOpts(app.penColor).role === 'feature') setLayer('feature'); setTool('pen'); };
+  // layers, front / back, mirror drawing
+  const setLayer = (l) => { app.layer = l; for (const b of $('layers2d').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.layer === l)); app.selected = null; renderSelCard(); app.v2.dirty = true; };
+  $('layers2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setLayer(b.dataset.layer); };
+  const setBack = (on) => { app.backView = on; for (const b of $('face2d').querySelectorAll('button')) b.setAttribute('aria-pressed', String((b.dataset.face === 'back') === on)); app.selected = null; renderSelCard(); app.v2.dirty = true; };
+  $('face2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setBack(b.dataset.face === 'back'); };
+  $('mirror-draw').onchange = (e) => { app.mirrorDraw = e.target.checked; };
+  const symm = (sgn) => { const n = symmetrizeFront(app.doc, sgn, newPath); app.selected = null; renderSelCard(); scheduleFull(10); toast(`Front view made symmetric (${n} strokes mirrored)`); };
+  $('btn-sym-left').onclick = () => symm(-1);
+  $('btn-sym-right').onclick = () => symm(1);
   // 3D
   document.querySelectorAll('[data-cam]').forEach((b) => (b.onclick = () => app.v3.preset(b.dataset.cam)));
   $('ortho').onchange = (e) => { app.v3.useOrtho = e.target.checked; app.v3.needs = true; };

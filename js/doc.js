@@ -146,7 +146,11 @@ export function parseSVG(text) {
         part: d.part || null,
         side: d.side || undefined,
       }));
+      if (d.pair) out[out.length - 1]._pair = d.pair;
     }
+    // mirrored twins: strokes sharing a pair tag
+    const byPair = new Map();
+    for (const p of out) if (p._pair) { if (byPair.has(p._pair)) { const q = byPair.get(p._pair); p.twin = q.id; q.twin = p.id; } else byPair.set(p._pair, p); delete p._pair; }
   } finally {
     holder.remove();
   }
@@ -282,6 +286,7 @@ export function exportSVG(doc, extraMeta = {}) {
       if (p.group) attrs.push(`data-group="${escapeXML(p.group)}"`);
       if (p.part) attrs.push(`data-part="${p.part}"`);
       if (p.role === 'feature' && p.side) attrs.push(`data-side="${p.side}"`);
+      if (p.twin != null && doc.paths.some((q) => q.id === p.twin)) attrs.push(`data-pair="m${Math.min(p.id, p.twin)}"`);
       lines.push(`  <path ${attrs.join(' ')}/>`);
     }
     lines.push('</g>');

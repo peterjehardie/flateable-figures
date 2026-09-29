@@ -30,7 +30,7 @@ export function buildFace(doc, frame, measure, mesh, prm) {
   const inHead = (y) => y > chin - 0.08 * hh && y < H;
   const feats = { front: [], side: [] };
   for (const p of doc.paths) {
-    if (p.role !== 'feature' || (p.view !== 'front' && p.view !== 'side') || p.pts.length < 2) continue;
+    if (p.role !== 'feature' || (p.view !== 'front' && p.view !== 'side') || p.pts.length < 2 || p.side === 'far') continue;
     const pts = p.pts.map(([xd, yd]) => (p.view === 'front' ? frame.fw(xd, yd) : frame.sw(xd, yd)));
     let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
     for (const [a, b] of pts) { x0 = Math.min(x0, a); x1 = Math.max(x1, a); y0 = Math.min(y0, b); y1 = Math.max(y1, b); }

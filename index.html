@@ -153,8 +153,16 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <button data-tool="fill" aria-pressed="false" title="Click an enclosed area of the side view to make it the arm cross-section (F)">Fill</button>
           <button data-tool="landmark" aria-pressed="false" title="Place a point in both views (L)">Landmark</button>
         </div>
-        <input type="color" id="pen-color" value="#1b1f27" title="Pen colour: black draws outline, colours draw feature tags" aria-label="Pen colour">
+        <input type="color" id="pen-color" value="#1b1f27" title="Pen colour: groups feature strokes" aria-label="Pen colour">
+        <div class="seg" id="layers2d" role="group" aria-label="Layer to draw on">
+          <button data-layer="line" aria-pressed="true" title="Outline: the silhouette the balloon fills">Outline</button><button data-layer="feature" aria-pressed="false" title="Features: eyes, mouth, muscle lines, tags">Features</button><button data-layer="note" aria-pressed="false" title="Notes: construction lines, ignored by the model">Notes</button>
+        </div>
+        <div class="seg" id="face2d" role="group" aria-label="Front or back">
+          <button data-face="front" aria-pressed="true" title="Front view: features on the front of the body">Front</button><button data-face="back" aria-pressed="false" title="Back view: the same outline seen from behind; features go on the back of the body">Back</button>
+        </div>
+        <label class="toggle" title="Strokes on one side of the centre line get a mirrored twin; a half outline from the centre line closes itself"><input type="checkbox" id="mirror-draw" checked>mirror</label>
         <span class="label">Show</span>
+        <label class="toggle"><input type="checkbox" data-show2d="features" checked>features</label>
         <label class="toggle"><input type="checkbox" data-show2d="hull" checked>hull</label>
         <label class="toggle"><input type="checkbox" data-show2d="fit" checked>fit</label>
         <label class="toggle"><input type="checkbox" data-show2d="stations" checked>stations</label>
@@ -205,6 +213,11 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
         <div class="group">
           <h3>Selected stroke</h3>
           <div id="sel-card"></div>
+        </div>
+        <div class="group">
+          <h3>Layers, front and back, symmetry</h3>
+          <p class="hint">The pen draws on the active layer (toolbar): <b>Outline</b> is the silhouette the balloon fills; <b>Features</b> are eyes, mouth, muscle lines and tags; <b>Notes</b> are ignored. Other layers dim and can't be picked. <b>Back</b> shows the front view from behind: same outline, and features drawn there go on the back of the body. With <b>mirror</b> on, a stroke on one side of the centre line gets a twin, and half an outline drawn from the centre line closes itself.</p>
+          <div class="row"><label>Make the front view symmetric, keeping</label><div class="btn-row"><button class="btn" id="btn-sym-left">left half</button><button class="btn" id="btn-sym-right">right half</button></div></div>
         </div>
         <div class="group">
           <h3>Outline</h3>

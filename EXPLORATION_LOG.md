@@ -89,3 +89,28 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - Tension on digits is cut to 0.2 in this pass: on a tube 1–2 cm across it pulled them ~6 mm thin.
   - Bug found: a flood with a size cap let later small pockets of palm overwrite the finger; now the smaller side of a full search is taken.
 - Still rough: a thin neck at each finger base (between knuckle and first loop, not laid out); the female big toe creases; the face's density step shows as a ring of 3/5 poles round the face.
+
+## 2026-09-29 — rig toolkit; layers, back view, symmetry
+
+- **Rig** (js/rig.js, js/rigpanel.js; Rig tab).
+  - Body points ("slots") are measured on the settled mesh from loops, stations and the drawings: pelvis, spine ×3, neck, head, clavicle, shoulder, elbow, wrist, 4 per finger, hip, knee, ankle, ball, toe tip.
+  - Built-in rig with Mixamo-style names (65 joints).
+- **Loading other rigs:** JSON, BVH and glTF/GLB skeletons.
+  - Joint names are matched to body points by keyword. Tested on Mixamo, Unreal and Rigify names. Twist and metacarpal bones are left unmatched on purpose. A spine of any length spreads over spine1/spine2/chest.
+  - Each joint can be matched by hand in the panel.
+  - Unmatched joints keep their place along the line between the matched joints above and below them (a BVH twist joint landed halfway, as in its source), or their offset from their parent scaled to the figure.
+- **Skin weights:** 1/d⁴ to the nearest bones of the same body part (limbs may also take trunk bones), at most 4. On hands and feet the reach is tighter, so fingers don't drag each other.
+- **Bend test:** sliders for elbows, knees, arms down/up, legs forward, bend forward, head turn, finger curl, toes up. Readouts for volume change, squashed quads (area < 30%) and quads turned over (against the rest normal rotated by the quad's main bone); optional stretch colours.
+  - All test poses at once: −8.6% volume, 118 squashed, 181 turned over. Elbow alone at 120°: 60 squashed, 12 turned over. Baseline for the joint-topology work.
+- **Export:** skinned glTF (.glb), bind pose with unrotated joints.
+  - Read back with three.js GLTFLoader: a skinned mesh with 65 bones. Its bend of the left elbow matches the app's own skinning to 0.00 mm.
+  - First test compare was wrong: three.js only refreshes bone matrices in skeleton.update().
+  - Bug found: switching rigs drew the new rig with the old fit.
+- **Drawing layers:** Outline / Features / Notes. The pen draws on the active layer; other layers dim and can't be picked. The pen colour still names feature groups.
+- **Back view:** the front panel shown mirrored (as seen from behind), sharing the outline. Strokes are stored in front-view coordinates. Features drawn there are marked for the far surface; the face pass ignores them.
+- **Mirror drawing:**
+  - A stroke on one side gets a twin; erasing one erases both.
+  - Half an outline drawn from the centre line closes itself.
+  - "Make symmetric" rebuilds the front view from either half, cutting strokes that cross the line.
+  - Twins are saved as pairs in the project SVG.
+- The user asked where the cage topology came from: it was written by hand by the agent, in code, and iterated by render and pole counts. It isn't from a reference base mesh or a dataset.
