@@ -304,7 +304,7 @@ function refineStatus() {
   if (f) rows.push(['face features used', `${f.eyes} eyes · ${f.ridges} brow lines · ${f.marks} widths (nose, mouth)`]);
   else rows.push(['face', app.params.face ? 'no face features found' : 'face loops are off (Refine → face loops)']);
   if (g) rows.push(['fingers and toes', `${g.matched} of ${g.digits} laid on their drawn shapes`]);
-  else rows.push(['fingers and toes', 'no top view, or digits off']);
+  else rows.push(['fingers and toes', 'none found: no fingers in the front outline or toes in the top view, or digits off']);
   const cs = app.conformState;
   if (cs) {
     const r = cs.report || conformReport(sim, cs.plan);
@@ -324,7 +324,7 @@ function startRefine() {
   if (app.running && sim.detail) { setRunning(false); return; }
   showBefore(false);
   if (!sim.iter || (app.running && !sim.detail)) { app.prm.faceDetail = true; $('faceDetail').checked = true; if (!app.running) setRunning(true); toast('Inflating the body first; refining follows'); return; }
-  if (!app.face && !app.digits) { toast('Nothing to refine: no face features and no top view'); return; }
+  if (!app.face && !app.digits) { toast('Nothing to refine: no face features, fingers or toes found'); return; }
   app.conformState = null;
   app.v3.setFeatureChains(null);
   sim.startDetail(app.face, app.digits);
