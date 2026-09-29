@@ -127,6 +127,22 @@ export function tagAnatomy(model, sim) {
     return `quadriceps ${S}`;
   }
 
+  // left and right are mirror images: the right side takes its labels from the left, face by face
+  if (sim.mirror) {
+    const byVerts = new Map();
+    const key = (vs) => vs.slice().sort((p, q) => p - q).join(',');
+    for (let f = 0; f < nF; f++) byVerts.set(key([Q[4 * f], Q[4 * f + 1], Q[4 * f + 2], Q[4 * f + 3]]), f);
+    const swap = (l) => l.replace(/ L$/, ' \u0000').replace(/ R$/, ' L').replace(/ \u0000$/, ' R');
+    for (let f = 0; f < nF; f++) {
+      const vs = [Q[4 * f], Q[4 * f + 1], Q[4 * f + 2], Q[4 * f + 3]];
+      let cx = 0; for (const v of vs) cx += P[3 * v];
+      if (cx >= 0) continue;
+      const m = vs.map((v) => sim.mirror[v]);
+      if (m.some((v) => v < 0)) continue;
+      const g = byVerts.get(key(m));
+      if (g !== undefined && g !== f) labels[f] = swap(labels[g]);
+    }
+  }
   // regions, colours, density (quads per area against the body's average)
   const areaOf = (f) => {
     const [a, b, c, d] = [Q[4 * f], Q[4 * f + 1], Q[4 * f + 2], Q[4 * f + 3]];

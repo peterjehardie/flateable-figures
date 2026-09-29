@@ -84,6 +84,18 @@ export class Balloon {
     this.lastMove = Infinity;
   }
 
+  // Third pass: edges onto the drawn features. `target` holds a point for each vertex of the edge
+  // chains chosen to carry them (NaN elsewhere); the body moves (not the head, hands and feet,
+  // which have had their own pass), the chains are pulled onto their curves and the rest relaxes.
+  startConform(target) {
+    const n = this.n, Q = this.mesh.quads, fp = this.mesh.fpart;
+    const inR = new Uint8Array(n).fill(1);
+    for (let f = 0; f < Q.length / 4; f++) if (fp[f] === 4 || fp[f] === 7 || fp[f] === 10 || fp[f] === 13 || fp[f] === 16) for (let k = 0; k < 4; k++) inR[Q[4 * f + k]] = 0;
+    const prev = this.detail;
+    this.detail = { face: null, inR, isFace: new Uint8Array(n), lt: new Float64Array(2 * n).fill(NaN), dt: target, hold: Float64Array.from(this.P), before: prev ? prev.before || prev.hold : Float64Array.from(this.P), iter: 0, conform: true, prevIter: prev ? prev.iter : 0 };
+    this.lastMove = Infinity;
+  }
+
   stopDetail() { this.detail = null; }
 
   // Points carried along during the body pass: each step their movement is filled in from their
@@ -220,7 +232,11 @@ export class Balloon {
         const w = det.isFace[i] ? this.faceWeight(px, py, pz) : 0;
         if (w > 0) dz += 0.2 * w * (fc.baseZ(px, py) + fc.relief(px, py) - pz);
         // fingers and toes to their layout along the drawn shapes
-        if (onDigit) { dx += 0.3 * (det.dt[3 * i] - px); dy += 0.3 * (det.dt[3 * i + 1] - py); dz += 0.3 * (det.dt[3 * i + 2] - pz); }
+        if (onDigit) {
+          dx += 0.3 * (det.dt[3 * i] - px); dy += 0.3 * (det.dt[3 * i + 1] - py); dz += 0.3 * (det.dt[3 * i + 2] - pz);
+          // a feature chain goes where it is drawn: no evening-out along the surface for it
+          if (det.conform) { dx -= prm.relax * tx; dy -= prm.relax * ty; dz -= prm.relax * tz; }
+        }
         const tx0 = det.lt[2 * i];
         if (tx0 === tx0) { dx += 0.2 * (tx0 - px); dy += 0.2 * (det.lt[2 * i + 1] - py); }
         // finer steps: every force scaled alike, so the balance (what it settles on) is unchanged

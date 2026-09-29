@@ -200,6 +200,10 @@ export class View3D {
     geo.setAttribute('normal', this.nrmAttr);
     geo.setAttribute('color', this.colAttr);
     const Q = mesh.quads;
+    this.quadsRef = Q;
+    if (this.flat) { this.group.remove(this.flat); this.flat.geometry.dispose(); this.flat = null; }
+    if (this.featObj) { this.group.remove(this.featObj); this.featObj.geometry.dispose(); this.featObj = null; }
+    if (this.featCurves) { this.group.remove(this.featCurves); this.featCurves.geometry.dispose(); this.featCurves = null; }
     const tri = new Uint32Array((Q.length / 4) * 6);
     for (let f = 0, t = 0; f < Q.length; f += 4) { tri[t++] = Q[f]; tri[t++] = Q[f + 1]; tri[t++] = Q[f + 2]; tri[t++] = Q[f]; tri[t++] = Q[f + 2]; tri[t++] = Q[f + 3]; }
     geo.setIndex(new THREE.BufferAttribute(tri, 1));
@@ -244,6 +248,58 @@ export class View3D {
     this.applyVisibility();
   }
 
+  // edge chains laid along the drawn features, in the feature colour, over everything
+  setFeatureChains(chains, curves) {
+    if (this.featObj) { this.group.remove(this.featObj); this.featObj.geometry.dispose(); this.featObj = null; }
+    if (this.featCurves) { this.group.remove(this.featCurves); this.featCurves.geometry.dispose(); this.featCurves = null; }
+    // the drawn strokes as laid on the surface, thin and dark, to compare the edges against
+    if (curves && curves.length) {
+      const pts = [];
+      for (const c of curves) { const m = c.closed ? c.pts.length : c.pts.length - 1; for (let i = 0; i < m; i++) pts.push(...c.pts[i], ...c.pts[(i + 1) % c.pts.length]); }
+      const cg = new THREE.BufferGeometry();
+      cg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+      this.featCurves = new THREE.LineSegments(cg, new THREE.LineBasicMaterial({ color: 0x1b1f27, transparent: true, opacity: 0.55, depthTest: true }));
+      this.featCurves.renderOrder = 3;
+      this.group.add(this.featCurves);
+    }
+    if (!this.posAttr || !chains || !chains.length) { this.needs = true; return; }
+    const idx = [];
+    for (const c of chains) { const m = c.closed ? c.verts.length : c.verts.length - 1; for (let i = 0; i < m; i++) idx.push(c.verts[i], c.verts[(i + 1) % c.verts.length]); }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', this.posAttr);
+    g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
+    this.featObj = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xd9463b, depthTest: true }));
+    this.featObj.renderOrder = 3;
+    this.group.add(this.featObj);
+    this.needs = true;
+  }
+
+  // one flat colour per quad (no blending across edges): a copy of the surface with its own
+  // corners per quad, kept in step with the balloon by update()
+  setFaceColors(cols) {
+    if (this.flat) { this.group.remove(this.flat); this.flat.geometry.dispose(); this.flat = null; }
+    if (this.mesh) this.mesh.visible = !cols;
+    if (!cols || !this.mesh) { this.needs = true; return; }
+    const Q = this.quadsRef, nQ = Q.length / 4;
+    const geo = new THREE.BufferGeometry();
+    const pos = new Float32Array(nQ * 18), col = new Float32Array(nQ * 18);
+    for (let f = 0; f < nQ; f++) for (let k = 0; k < 6; k++) col.set(cols.subarray(3 * f, 3 * f + 3), 18 * f + 3 * k);
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.flat = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, flatShading: true, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }));
+    this.group.add(this.flat);
+    this.fillFlat(this.posAttr.array);
+  }
+  fillFlat(P) {
+    if (!this.flat) return;
+    const Q = this.quadsRef, a = this.flat.geometry.attributes.position.array;
+    for (let f = 0, o = 0; f < Q.length; f += 4) for (const k of [0, 1, 2, 0, 2, 3]) { const v = Q[f + k]; a[o++] = P[3 * v]; a[o++] = P[3 * v + 1]; a[o++] = P[3 * v + 2]; }
+    this.flat.geometry.attributes.position.needsUpdate = true;
+    this.flat.geometry.computeVertexNormals();
+    this.flat.geometry.computeBoundingSphere();
+    this.needs = true;
+  }
+
   setAccent(hex) { if (this.loopsObj) this.loopsObj.material.color.set(hex); if (this.cursorPlane) this.cursorPlane.material.color.set(hex); }
 
   update(P, Nn) {
@@ -254,6 +310,7 @@ export class View3D {
     if (Nn) { const b = this.nrmAttr.array; for (let i = 0; i < b.length; i++) b[i] = Nn[i]; this.nrmAttr.needsUpdate = true; }
     else this.mesh.geometry.computeVertexNormals();
     this.mesh.geometry.computeBoundingSphere();
+    if (this.flat) this.fillFlat(P);
     this.needs = true;
   }
 

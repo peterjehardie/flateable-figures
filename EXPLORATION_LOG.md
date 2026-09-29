@@ -174,3 +174,11 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - Erased pieces lost their twin links; they are now paired with the mirror piece nearest them.
   - The deltoid ring's lean could cross the next ring; it is now limited by the gaps.
   - The renamed head rings (nostrils, forehead) had no anatomy names.
+
+## Feature strokes carried by mesh edges (conform pass)
+- Tried: after Refine, each stroke on the Features layer is projected onto the surface from its view and mapped to a chain of existing mesh edges. A closed stroke maps to the border of the faces inside it. An open stroke maps to the cheapest edge path in a band around it (cost grows with distance from the stroke). Chain vertices are then pulled onto the stroke by arc length while the rest of the body stays soft.
+- Symmetry: strokes are planned on one side and the chain is mirrored through the mesh mirror map; planning each side on its own gave zigzag, unmatched chains.
+- Measured on the user's traced sketch (male preset, split sheet): 40 of 44 strokes placed; mean gap 9.4 mm → 3.6 mm, worst 23.6 → 17.7 mm.
+- Known limit: diagonal strokes across a grid of rings become staircases. Pulling vertices cannot fix this; it needs edges re-routed or faces split along the stroke.
+- Tracer: pale coloured pixels now count as colour (chroma 0.14); short spurs are pruned and nearby chain ends joined.
+- Anatomy colours: now one flat colour per face with no blending, left and right mirrored.

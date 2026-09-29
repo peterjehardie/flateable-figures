@@ -15,6 +15,7 @@ import { buildDigits } from './digits.js';
 import { mirrorStroke, mirrorPts, symmetrizeFront } from './symmetry.js';
 import { initRigPanel } from './rigpanel.js';
 import { tagAnatomy } from './anatomy.js';
+import { planConform, conformReport } from './conform.js';
 import { toOBJ, tagsJSON, makeZip, saveFile } from './exporter.js';
 import { bboxOf, parseColor, colorName, toHex, simplify, polyLength } from './util.js';
 
@@ -25,7 +26,7 @@ const app = {
   doc: createDoc(),
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
   params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true, faceRefine: true },
-  prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2, faceDetail: true },
+  prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2, faceDetail: true, followFeatures: true },
   layer: 'line', faceMode: 'split', mirrorDraw: true,
   steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
@@ -57,6 +58,7 @@ function makeMaskImages() {
   if (app.masks.section) app.maskImgs.section = maskImage(app.masks.section, [hex.r, hex.g, hex.b], 120);
 }
 
+app.fullRebuild = () => fullRebuild();
 function fullRebuild() {
   const doc = app.doc;
   ensureGroups(doc);
@@ -92,6 +94,7 @@ function rebuildModel() {
   app.stillFrames = 0;
   if (app.rigPanel) app.rigPanel.onModel();
   app.anat = null;
+  app.conformState = null;
   try { refreshAnatomy(false); } catch (e) { console.warn('anatomy', e); }
   setRunning(false);
   updateTags();
@@ -193,10 +196,12 @@ function applyShading() {
       else if (v !== 4) cols.set([0.85, 0.2, 0.6], 3 * i);
     }
   } else if (app.shading === 'anatomy') {
+    // one flat colour per quad
     if (!app.anat) refreshAnatomy(false);
-    const A = app.anat, Q = sim.mesh.quads;
-    if (A) for (let f = 0; f < Q.length / 4; f++) { const c = A.regions[A.face[f]].color; for (let k = 0; k < 4; k++) cols.set(c, 3 * Q[4 * f + k]); }
+    const A = app.anat, nQ = sim.mesh.quads.length / 4;
+    if (A) { const fc = new Float32Array(3 * nQ); for (let f = 0; f < nQ; f++) fc.set(A.regions[A.face[f]].color, 3 * f); app.v3.setFaceColors(fc); return; }
   }
+  app.v3.setFaceColors(null);
   app.v3.setColors(cols);
 }
 
@@ -224,8 +229,19 @@ function loop(t) {
     if (sim.detail) {
       // detail pass on the face: judged on the head only, with a cap
       const d = sim.detail;
-      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); refreshAnatomy(); if (app.rigPanel) app.rigPanel.onSettled(); } }
-      else app.stillFrames = 0;
+      const cap = d.conform ? 700 : 900;
+      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > cap) {
+        if (++app.stillFrames > 20 || d.iter > cap) {
+          app.stillFrames = 0;
+          if (!d.conform && app.prm.followFeatures !== false && startFeaturePass()) toast('Face, hands and feet refined: now laying edges along the drawn features');
+          else {
+            if (d.conform) finishFeaturePass();
+            app.settled = true; refreshFit(); setRunning(false);
+            toast(d.conform ? `Done: ${app.conformState.report.followed} drawn features carried by edges` : 'Face, hands and feet refined');
+            refreshAnatomy(); if (app.rigPanel) app.rigPanel.onSettled();
+          }
+        }
+      } else app.stillFrames = 0;
     } else if ((sim.lastMove < 2.5e-5 && sim.iter > 60) || plateau(sim)) {
       if (++app.stillFrames > 30) {
         app.stillFrames = 0;
@@ -254,17 +270,45 @@ function goStep(step, from) {
   app.v3.applyVisibility();
 }
 app.goStep = goStep;
+// Edges along the drawn features: plan the chains on the settled surface, then pull them on
+function startFeaturePass() {
+  const sim = app.sim;
+  if (!sim || !app.frame) return false;
+  const plan = planConform(app.doc, app.frame, sim, app.prm.symmetry);
+  app.conformState = { plan, report: null };
+  if (!plan.plans.length) return false;
+  sim.startConform(plan.target);
+  app.v3.setFeatureChains(plan.plans.map((p) => ({ verts: p.chain, closed: p.closed })), plan.plans.map((p) => ({ pts: p.curve, closed: p.closed })));
+  return true;
+}
+function finishFeaturePass() {
+  const cs = app.conformState;
+  if (!cs) return;
+  cs.report = conformReport(app.sim, cs.plan);
+  // the chains become named loops (anatomy report, export)
+  const loops = app.sim.mesh.loops;
+  for (let i = loops.length - 1; i >= 0; i--) if (loops[i].feature) loops.splice(i, 1);
+  for (const p of cs.plan.plans) loops.push({ name: 'feature ' + p.name, verts: p.chain, station: false, axis: -1, feature: true, open: !p.closed });
+}
 // What the finer pass did and found, shown in the Refine step
 function refineStatus() {
   const sim = app.sim, el = $('refine-status');
   if (!el || !sim) return;
   const d = sim.detail, f = app.face, g = app.digits;
-  const state = !sim.iter ? 'not started: the body inflates first' : d ? (app.running ? `refining · step ${d.iter}` : `done · ${d.iter} steps`) : app.running ? 'inflating the body first' : 'not refined yet';
+  const state = !sim.iter ? 'not started: the body inflates first' : d ? (app.running ? (d.conform ? `laying edges along the drawn features · step ${d.iter}` : `refining · step ${d.iter}`) : 'done') : app.running ? 'inflating the body first' : 'not refined yet';
   const rows = [['state', state]];
   if (f) rows.push(['face features used', `${f.eyes} eyes · ${f.ridges} brow lines · ${f.marks} widths (nose, mouth)`]);
   else rows.push(['face', app.params.face ? 'no face features found' : 'face loops are off (Refine → face loops)']);
   if (g) rows.push(['fingers and toes', `${g.matched} of ${g.digits} laid on their drawn shapes`]);
   else rows.push(['fingers and toes', 'no top view, or digits off']);
+  const cs = app.conformState;
+  if (cs) {
+    const r = cs.report || conformReport(sim, cs.plan);
+    rows.push(['drawn features on edges', `${r.followed} followed · ${cs.plan.skipped.length} left out`]);
+    if (r.followed) rows.push(['gap edge ↔ stroke', `mean ${(r.mean * 1000).toFixed(1)} mm · worst ${(r.max * 1000).toFixed(1)} mm`]);
+    const why = [...new Set(cs.plan.skipped.map((k) => k.why))];
+    if (why.length) rows.push(['left out because', why.join('; ')]);
+  }
   el.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
   $('btn-refine').textContent = app.running && d ? 'Stop' : d && !app.running ? 'Refine again' : 'Refine face, hands and feet';
   $('btn-compare').disabled = !d;
@@ -277,6 +321,8 @@ function startRefine() {
   showBefore(false);
   if (!sim.iter || (app.running && !sim.detail)) { app.prm.faceDetail = true; $('faceDetail').checked = true; if (!app.running) setRunning(true); toast('Inflating the body first; refining follows'); return; }
   if (!app.face && !app.digits) { toast('Nothing to refine: no face features and no top view'); return; }
+  app.conformState = null;
+  app.v3.setFeatureChains(null);
   sim.startDetail(app.face, app.digits);
   app.settled = false;
   setRunning(true);
@@ -288,7 +334,7 @@ function showBefore(on) {
   $('btn-compare').setAttribute('aria-pressed', String(app.comparing));
   $('btn-compare').textContent = app.comparing ? 'Show after' : 'Show before';
   if (!sim) return;
-  if (app.comparing) app.v3.update(d.hold); else app.v3.update(sim.P, sim.N);
+  if (app.comparing) app.v3.update(d.before || d.hold); else app.v3.update(sim.P, sim.N);
 }
 // Camera onto part of the figure
 function lookAt(what) {
@@ -887,6 +933,7 @@ function bindControls() {
   $('btn-run').onclick = () => { if (!app.running) goStep('inflate', 'draw'); setRunning(!app.running); };
   $('btn-run2').onclick = () => $('btn-run').click();
   $('btn-refine').onclick = startRefine;
+  $('followFeatures').onchange = (e) => { app.prm.followFeatures = e.target.checked; };
   $('btn-compare').onclick = () => showBefore(!app.comparing);
   document.querySelectorAll('[data-look]').forEach((b) => (b.onclick = () => lookAt(b.dataset.look)));
   // steps

@@ -16,7 +16,8 @@ export function traceImageData(img) {
     const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
     const chroma = (mx - mn) / 255;
     const l = (mx + mn) / 510;
-    if (chroma > 0.3 && l < 0.9) {
+    // (thin coloured strokes are mostly pale anti-aliased pixels: count them too)
+    if (chroma > 0.14 && l < 0.95) {
       const { h } = rgbToHsl({ r, g, b });
       hueIdx[i] = hues.length;
       hues.push(h);
@@ -81,7 +82,7 @@ export function traceImageData(img) {
     closeSmallHoles(bin, W, H);
     thin(bin, W, H);
     removeStairs(bin, W, H);
-    const chains = walkSkeleton(bin, W, H);
+    const chains = tidyChains(walkSkeleton(bin, W, H), Math.max(7, 0.012 * Math.max(W, H)));
     // drop only short pieces that touch nothing (specks), keep short connectors
     const ends = new Map();
     const k = ([x, y]) => `${Math.round(x)},${Math.round(y)}`;
@@ -208,6 +209,35 @@ function walkSkeleton(img, W, H) {
     .filter((l) => !(l.length <= 2 && isNode(l[0]) && isNode(l[l.length - 1])))
     .map((l) => l.map((i) => [i % W + 0.5, ((i / W) | 0) + 0.5]));
   return joinChains(lines, 2.3);
+}
+
+// A brush leaves short spurs on the skeleton, and three chain ends meeting at one point stop
+// chains from joining, so closed shapes and long lines come out in pieces. Prune the spurs,
+// join again, then bridge free ends that are each other's nearest within a few pixels.
+function tidyChains(chains, gap) {
+  const key = ([x, y]) => `${Math.round(x / 2)},${Math.round(y / 2)}`;
+  for (let pass = 0; pass < 3; pass++) {
+    const deg = new Map();
+    for (const c of chains) for (const e of [c[0], c[c.length - 1]]) deg.set(key(e), (deg.get(key(e)) || 0) + 1);
+    const before = chains.length;
+    chains = chains.filter((c) => {
+      const d0 = deg.get(key(c[0])), d1 = deg.get(key(c[c.length - 1]));
+      return !(polyLength(c) < 14 && ((d0 === 1 && d1 >= 3) || (d1 === 1 && d0 >= 3)));
+    });
+    chains = joinChains(chains, 2.5);
+    if (chains.length === before) break;
+  }
+  // bridge small gaps between free ends (mutual nearest, within `gap` px)
+  const free = [];
+  chains.forEach((c, i) => { free.push({ i, end: 0, p: c[0] }, { i, end: 1, p: c[c.length - 1] }); });
+  const nearest = (a) => { let b = null, bd = gap; for (const o of free) { if (o === a || (o.i === a.i && chains[a.i].length < 8)) continue; const d = Math.hypot(o.p[0] - a.p[0], o.p[1] - a.p[1]); if (d < bd) { bd = d; b = o; } } return b; };
+  const pairs = [];
+  for (const a of free) { const b = nearest(a); if (b && nearest(b) === a && (a.i < b.i || (a.i === b.i && a.end < b.end))) pairs.push([a, b]); }
+  if (!pairs.length) return chains;
+  // closing a single chain on itself: nudge its last point onto the first so it reads as closed
+  for (const [a, b] of pairs) if (a.i === b.i) { const c = chains[a.i]; c.push(c[0].slice()); }
+  const merged = joinChains(chains, gap + 0.5);
+  return merged;
 }
 
 function joinChains(lines, tol) {
