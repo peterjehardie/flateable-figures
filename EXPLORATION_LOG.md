@@ -188,3 +188,19 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 - Now: Claude colours (ivory/slate surfaces, clay accent), a serif brand heading, and a Light / Mid / Dark switch. Mid's grays come from Blender's default theme source file (userdef_default_theme.c): viewport and panels #3d3d3d, editors #303030, widgets #545454, text #e6e6e6.
 - The typefaces are free stand-ins (Source Serif 4, system sans, JetBrains Mono); Anthropic's own typefaces are not freely loadable.
 - Fixed a phone-width overflow that was already there: the outer grid column sized to its widest child.
+
+## Blender add-on: sketch → inflate → base mesh → patch retopology (blender/)
+- Tried: moving the drawing-to-mesh idea into Blender (5.0.1 as a Python module, headless), because sculpting and retopology live there.
+- Sketch: Grease Pencil with a Front layer (drawing locked to the XZ plane) and a Side layer (YZ plane), plus two orthographic cameras. Drawing is native; the add-on only sets up layers, view and plane lock.
+- Inflate: union of inscribed balls from the front outline (separable distance transforms), stretched to the side outline's depth per height and clipped by it; surface nets; voxel remesh; QuadriFlow; Multires. About 17 s for a figure at 9000 faces.
+  - Dropped: QuadriFlow at about 6000 faces. It silently dropped a whole forearm, with or without its symmetry option. Now the result is checked against the voxel mesh's extents and retried with more faces.
+  - Dropped: mirroring the front mask after filling. A half outline encloses nothing, so the body came out hollow. Now strokes are mirrored before filling and ends near the centre are carried onto it.
+- Patch retopology (after Takayama et al. 2013):
+  - Strokes drawn on the surface become a network: crossings and ends that land on another stroke are nodes.
+  - Faces are traced by edge order round each node. Node normals are averaged along the node's edges; a single normal in a crease (under the chin) scrambled the order.
+  - Edge counts: chains tie opposite sides of 4-sided patches; odd patches are fixed by flipping chains along shortest dual paths; then a ±2 local search.
+  - Fill: grid, or a centre point with spokes (3/5/6 sides), with added or dropped corners; several layouts are tried per patch and one without folds is kept; Coons fill; relaxed onto the surface.
+  - Dropped: the rule "the border runs the wrong way round, so it lies outside the drawn network". Half-tube patches give a noisy sign. Now only the largest leftover region is left out.
+- Measured on the reference figures with grid-like test strokes: male 63/63 patches filled, 2 folded quads; female 62/62, 10 folded.
+- On an anatomical stroke set (shoulder cap, chest border, stomach loop, hip V, shoulder blade, buttock, kneecap): all patches fill, but 118 quads fold where patches wrap concave or strongly curved areas (crotch, upper back). Straight-line interior placement is the cause. Next: lay out each patch over the sculpt's own triangles (a harmonic map of the enclosed region).
+- The fill is simpler than Takayama et al. 2014's complete pattern set; that paper is not implemented.

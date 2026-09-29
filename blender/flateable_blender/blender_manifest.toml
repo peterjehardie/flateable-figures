@@ -1,0 +1,12 @@
+schema_version = "1.0.0"
+
+id = "flateable"
+version = "0.1.0"
+name = "Flateable"
+tagline = "Sketch to base mesh by inflation, and patch retopology from drawn strokes"
+maintainer = "Flateable Figures"
+type = "add-on"
+
+blender_version_min = "4.3.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
