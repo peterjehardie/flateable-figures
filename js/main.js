@@ -211,7 +211,7 @@ function loop(t) {
     } else if (sim.lastMove < 2.5e-5 && sim.iter > 60) {
       if (++app.stillFrames > 30) {
         app.stillFrames = 0;
-        if (app.prm.faceDetail && (app.face || app.digits)) { sim.startDetail(app.face, app.digits); toast('Body settled: now working the face, hands and feet in finer steps'); }
+        if (app.prm.faceDetail && (app.face || app.digits)) { sim.startDetail(app.face, app.digits); goStep('refine', 'inflate'); toast('Body settled: now working the face, hands and feet in finer steps'); }
         else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); if (app.rigPanel) app.rigPanel.onSettled(); }
       }
     } else app.stillFrames = 0;
@@ -225,10 +225,30 @@ function loop(t) {
 
 // inflation only runs when asked: the Inflate button, or Deflate and reinflate
 function wake() { app.settled = false; app.stillFrames = 0; }
+// Show a step's panel. With `from`, only when that step is the one showing (so the panel follows
+// the work without pulling the user away from another step).
+function goStep(step, from) {
+  const cur = document.querySelector('.tab[aria-selected="true"]');
+  if (from && cur && cur.dataset.tab !== from) return;
+  document.querySelectorAll('.tab').forEach((o) => o.setAttribute('aria-selected', String(o.dataset.tab === step)));
+  document.querySelectorAll('.tabpanel').forEach((p) => (p.hidden = p.dataset.panel !== step));
+}
+app.goStep = goStep;
+function markSteps() {
+  const sim = app.sim;
+  const done = {
+    draw: !!(app.masks && app.masks.front && app.masks.side),
+    inflate: !!(sim && sim.iter > 0 && (app.settled || sim.detail)),
+    refine: !!(sim && app.settled && sim.detail),
+    rig: !!(app.rigState && app.rigState.fit),
+  };
+  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('done', !!done[t.dataset.tab]));
+}
 function setRunning(on) {
   app.running = on;
   if (on) { wake(); if (app.rigPanel) app.rigPanel.onRun(); }
   $('btn-run').textContent = on ? 'Stop' : 'Inflate';
+  $('btn-run2').textContent = on ? 'Stop' : app.sim && app.sim.iter > 0 ? 'Continue inflating' : 'Inflate';
   $('btn-run').setAttribute('aria-pressed', String(on));
   statusLine();
 }
@@ -241,6 +261,7 @@ function statusLine() {
   const side = f.side ? ` side <b>${fmt(100 * f.side.cover, 0)}%</b>` : '';
   const state = app.running ? (sim.detail ? 'refining face, hands, feet' : 'inflating') : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
   setStatus(`<b>${sim.mesh.quads.length / 4}</b> quads · ${cover}${side} · ${state}`, true);
+  markSteps();
 }
 function setStatus(s, html) { if (html) $('status').innerHTML = s; else $('status').textContent = s; }
 
@@ -602,17 +623,19 @@ function renderTags() {
   const doc = app.doc;
   const el = $('tag-list');
   const names = Object.keys(doc.groups);
-  if (!names.length) el.innerHTML = '<p class="hint">No tag groups yet. Draw with a coloured pen, or make a group and paint.</p>';
+  if (!names.length) el.innerHTML = '<p class="hint">No feature groups yet. Draw on the Features layer, or make a group and paint.</p>';
   else el.innerHTML = names.map((name) => {
     const g = doc.groups[name];
     return `<div class="tag-item ${name === app.paintGroup ? 'active' : ''}" data-name="${escapeAttr(name)}">
       <div class="tag-head"><input type="color" value="${toHex(parseColor(g.color) || { r: 200, g: 60, b: 120 })}" aria-label="Group colour" style="width:22px;height:18px;padding:0;border:0;background:none"><input type="text" value="${escapeAttr(name)}" aria-label="Group name"><span class="chip" data-count>0</span><label class="toggle" title="Show"><input type="checkbox" data-vis ${g.visible ? 'checked' : ''}>show</label></div>
+      <details class="tag-more" ${app.openTags && app.openTags.has(name) ? 'open' : ''}><summary>settings</summary>
       <div class="tag-body">
-        <div class="slider"><label>pressure</label><span class="val">${fmt(g.pressure, 2)}×</span><input type="range" min="0" max="2.5" step="0.05" value="${g.pressure}" data-k="pressure" aria-label="Pressure multiplier"></div>
-        <div class="slider"><label>tension</label><span class="val">${fmt(g.tension, 2)}×</span><input type="range" min="0" max="4" step="0.05" value="${g.tension}" data-k="tension" aria-label="Tension multiplier"></div>
+        <div class="slider"><label>puff out</label><span class="val">${fmt(g.pressure, 2)}×</span><input type="range" min="0" max="2.5" step="0.05" value="${g.pressure}" data-k="pressure" aria-label="Pressure multiplier"></div>
+        <div class="slider"><label>flatten</label><span class="val">${fmt(g.tension, 2)}×</span><input type="range" min="0" max="4" step="0.05" value="${g.tension}" data-k="tension" aria-label="Tension multiplier"></div>
       </div>
-      <label class="toggle"><input type="checkbox" data-loop ${g.loop ? 'checked' : ''}>pull the nearest loop onto this group's open lines</label>
+      <label class="toggle"><input type="checkbox" data-loop ${g.loop ? 'checked' : ''}>pull the nearest ring onto this group's lines</label>
       <div class="btn-row"><button class="btn" data-paint>Paint with this</button><button class="btn" data-clear>Clear paint</button><button class="btn" data-del>Delete group</button></div>
+      </details>
     </div>`;
   }).join('');
   el.querySelectorAll('.tag-item').forEach((item) => {
@@ -629,6 +652,7 @@ function renderTags() {
       if (app.paintGroup === name) app.paintGroup = nn;
       renderTags(); updateTags(); scheduleSave();
     };
+    item.querySelector('.tag-more').ontoggle = (e) => { app.openTags = app.openTags || new Set(); if (e.target.open) app.openTags.add(name); else app.openTags.delete(name); };
     item.querySelector('[data-vis]').onchange = (e) => { g.visible = e.target.checked; applyShading(); app.v2.dirty = true; };
     item.querySelectorAll('input[type=range]').forEach((r) => {
       r.oninput = (e) => { g[r.dataset.k] = +e.target.value; r.previousElementSibling.textContent = fmt(+e.target.value, 2) + '×'; updateTags(); wake(); scheduleSave(); };
@@ -728,18 +752,21 @@ function bindControls() {
   $('faceDetail').onchange = (e) => { app.prm.faceDetail = e.target.checked; if (app.sim) { if (!e.target.checked) app.sim.stopDetail(); app.sim.setCarried(e.target.checked && app.face ? app.face.inner : null); } wake(); };
   $('ringN').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; app.params.N = +b.dataset.n; syncControls(); scheduleModel(10); };
   $('btn-restart').onclick = () => { rebuildModel(); setRunning(true); };
-  $('btn-run').onclick = () => setRunning(!app.running);
-  // tabs
-  document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => {
-    document.querySelectorAll('.tab').forEach((o) => o.setAttribute('aria-selected', String(o === t)));
-    document.querySelectorAll('.tabpanel').forEach((p) => (p.hidden = p.dataset.panel !== t.dataset.tab));
-  }));
+  $('btn-run').onclick = () => { if (!app.running) goStep('inflate', 'draw'); setRunning(!app.running); };
+  $('btn-run2').onclick = () => $('btn-run').click();
+  // steps
+  document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => goStep(t.dataset.tab)));
+  document.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => goStep(b.dataset.goto)));
+  // menus close on a click elsewhere or Escape
+  document.addEventListener('pointerdown', (e) => { for (const d of document.querySelectorAll('details.menu[open]')) if (!d.contains(e.target)) d.open = false; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const d of document.querySelectorAll('details.menu[open]')) d.open = false; });
   // 2D tools and overlays
   const setTool = (tool) => {
     app.v2.tool = tool;
     for (const b of $('tools2d').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.tool === tool));
   };
   $('tools2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setTool(b.dataset.tool); };
+  document.querySelectorAll('[data-tool2]').forEach((b) => (b.onclick = () => { setTool(b.dataset.tool2); b.closest('details').open = false; toast(b.dataset.tool2 === 'fill' ? 'Click inside the arm section in the side view' : 'Click a point in the front view, then the same point in the side view'); }));
   document.querySelectorAll('[data-show2d]').forEach((c) => (c.onchange = (e) => { app.v2.show[c.dataset.show2d] = e.target.checked; app.v2.dirty = true; }));
   $('btn-fit2d').onclick = () => app.v2.fit();
   $('pen-color').oninput = (e) => { app.penColor = e.target.value; if (penPathOpts(app.penColor).role === 'feature') setLayer('feature'); setTool('pen'); };
@@ -807,7 +834,7 @@ function bindControls() {
     try { const r = await saveFile('flateable-figure.zip', makeZip(files)); if (r === 'saved') toast('Exported OBJ, tags and project'); }
     catch (err) { toast('Export failed: ' + (err.message || err.code)); }
   };
-  $('btn-export').onclick = () => { document.querySelector('.tab[data-tab="tags"]').click(); $('exp-level').focus(); doExport(); };
+  $('btn-export').onclick = () => { goStep('rig'); $('exp-level').focus(); };
   $('btn-export2').onclick = doExport;
   $('btn-copy-obj').onclick = async () => {
     if (!app.sim) return;

@@ -35,7 +35,7 @@ export class View3D {
     this.scene.add(cp);
     this.grid = new THREE.GridHelper(4, 20, 0x9aa1ab, 0xc9ced6);
     this.scene.add(this.grid);
-    this.show = { wire: true, cage: true, loops: true, drawings: true, shading: 'clay' };
+    this.show = { wire: true, cage: false, loops: true, drawings: false, shading: 'clay' };
     this.raycaster = new THREE.Raycaster();
     this.painting = false;
     this.bindControls();

@@ -114,3 +114,13 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - "Make symmetric" rebuilds the front view from either half, cutting strokes that cross the line.
   - Twins are saved as pairs in the project SVG.
 - The user asked where the cage topology came from: it was written by hand by the agent, in code, and iterated by render and pole counts. It isn't from a reference base mesh or a dataset.
+
+## 2026-09-29 — interface in four steps
+
+- The user found the interface unruly. It is now four steps in the header: Draw → Inflate → Refine → Rig & export. Each has one panel, and "next" and "back" buttons.
+  - The panel follows the work: Inflate opens step 2 if the user is still on Draw; the finer pass opens Refine if they are on Inflate. Finished steps get a mark.
+- Physics settings, topology counts, heights, calibration, landmarks and the joint list sit in collapsed sections.
+- Both toolbars keep only tools. Display toggles, Fill and Landmark moved into View menus.
+- Calmer defaults: no mesh loops on the drawing, no cage edges or drawings in 3D. The fit colours only appear once inflation has started (before, they tinted everything blue).
+- Feature group cards fold their settings. "Pressure/tension" are relabelled "puff out/flatten".
+- Checked in light and dark themes, through the whole flow.

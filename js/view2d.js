@@ -16,7 +16,7 @@ export class View2D {
     this.ctx = canvas.getContext('2d');
     this.view = { s: 1, ox: 0, oy: 0 };
     this.tool = 'select';
-    this.show = { hull: true, fit: true, stations: true, heads: false, parts: false, mesh: true, bg: true };
+    this.show = { hull: true, fit: true, stations: true, heads: false, parts: false, mesh: false, bg: true, features: true };
     this.hover = null;
     this.drag = null;
     this.cursor = null;
@@ -253,7 +253,7 @@ export class View2D {
       ctx.save();
       if (view === 'front' && this.isBack()) this.mirrorCtx(ctx);
       if (this.show.hull && app.maskImgs && app.maskImgs[view]) ctx.drawImage(app.maskImgs[view], m.x0, m.y0, m.W * m.cell, m.H * m.cell);
-      if (this.show.fit && app.fit && app.fit[view] && !(view === 'front' && this.isBack())) ctx.drawImage(app.fit[view].canvas, m.x0, m.y0, m.W * m.cell, m.H * m.cell);
+      if (this.show.fit && app.fit && app.fit[view] && app.sim && app.sim.iter > 0 && !(view === 'front' && this.isBack())) ctx.drawImage(app.fit[view].canvas, m.x0, m.y0, m.W * m.cell, m.H * m.cell);
       ctx.restore();
       ctx.imageSmoothingEnabled = true;
     }

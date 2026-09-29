@@ -99,7 +99,35 @@ input[type=number] { width: 76px; font-family: var(--mono); font-size: 12px; }
 .tag-head input[type=text] { width: 100%; }
 .tag-body { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
 .tag-body .slider { font-size: 12px; }
+.tag-more > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.tag-more[open] { display: flex; flex-direction: column; gap: 6px; }
 .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.steps { display: flex; gap: 2px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 99px; padding: 2px; }
+.step { border: 0; background: none; border-radius: 99px; padding: 5px 12px; cursor: pointer; color: var(--muted); font-size: 12.5px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.step i { font-style: normal; font: 11px var(--mono); width: 18px; height: 18px; border-radius: 50%; display: inline-grid; place-items: center; border: 1px solid var(--line); background: var(--panel); }
+.step[aria-selected="true"] { background: var(--panel); color: var(--ink); font-weight: 500; box-shadow: 0 0 0 1px var(--line); }
+.step[aria-selected="true"] i { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.step.done i { border-color: var(--accent); color: var(--accent); }
+.step.done[aria-selected="true"] i { color: var(--accent-ink); }
+.pane .tools .spacer { flex: 1; }
+details.menu { position: relative; }
+details.menu > summary { list-style: none; }
+details.menu > summary::-webkit-details-marker { display: none; }
+details.menu > summary::after { content: " ▾"; color: var(--muted); }
+details.menu[open] > summary { border-color: var(--accent); }
+.menu-body { position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; min-width: 220px; box-shadow: 0 6px 20px color-mix(in srgb, var(--ink) 14%, transparent); }
+.menu-body hr { border: 0; border-top: 1px solid var(--line); margin: 2px 0; width: 100%; }
+.menu-body .toggle { color: var(--ink); }
+details.adv { border-top: 1px solid var(--line); padding-top: 10px; }
+details.adv > summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
+details.adv[open] > summary { color: var(--ink); }
+.adv-body { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.next { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.next .btn.primary:only-child { margin-left: auto; }
+.btn.big { padding: 7px 18px; font-weight: 500; }
+.swatch-in { width: 30px; height: 26px; padding: 1px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); cursor: pointer; }
+.btn-row select { flex: 1; min-width: 0; }
+
 .rig-map { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 8px; font-size: 12px; max-height: 320px; overflow: auto; align-items: center; }
 .rig-map span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rig-map span.off { color: var(--muted); }
@@ -133,14 +161,17 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 <body>
 <div class="app">
   <header class="bar">
-    <div class="brand"><h1>Flateable Figures</h1><span>two drawings in, one inflated quad mesh out</span></div>
-    <button class="btn" id="btn-open">Open drawing…</button>
-    <select id="sel-sample" aria-label="Load a sample drawing">
-    </select>
-    <button class="btn" id="btn-save">Save project</button>
-    <button class="btn primary" id="btn-export">Export mesh</button>
+    <div class="brand"><h1>Flateable Figures</h1></div>
+    <nav class="steps" role="tablist" aria-label="Steps">
+      <button class="tab step" role="tab" data-tab="draw" aria-selected="true"><i>1</i>Draw</button>
+      <button class="tab step" role="tab" data-tab="inflate" aria-selected="false"><i>2</i>Inflate</button>
+      <button class="tab step" role="tab" data-tab="refine" aria-selected="false"><i>3</i>Refine</button>
+      <button class="tab step" role="tab" data-tab="rig" aria-selected="false"><i>4</i>Rig &amp; export</button>
+    </nav>
     <div class="spacer"></div>
     <div class="status" id="status">loading…</div>
+    <button class="btn" id="btn-save">Save project</button>
+    <button class="btn" id="btn-export">Export</button>
     <input type="file" id="file" accept=".svg,image/svg+xml,image/png,image/jpeg,image/webp" hidden>
   </header>
   <div class="work">
@@ -150,33 +181,37 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <button data-tool="select" aria-pressed="true" title="Select strokes, drag guide lines (V)">Select</button>
           <button data-tool="pen" aria-pressed="false" title="Draw a stroke (P)">Pen</button>
           <button data-tool="erase" aria-pressed="false" title="Click a stroke to delete it (E)">Erase</button>
-          <button data-tool="fill" aria-pressed="false" title="Click an enclosed area of the side view to make it the arm cross-section (F)">Fill</button>
-          <button data-tool="landmark" aria-pressed="false" title="Place a point in both views (L)">Landmark</button>
         </div>
-        <input type="color" id="pen-color" value="#1b1f27" title="Pen colour: groups feature strokes" aria-label="Pen colour">
         <div class="seg" id="layers2d" role="group" aria-label="Layer to draw on">
-          <button data-layer="line" aria-pressed="true" title="Outline: the silhouette the balloon fills">Outline</button><button data-layer="feature" aria-pressed="false" title="Features: eyes, mouth, muscle lines, tags">Features</button><button data-layer="note" aria-pressed="false" title="Notes: construction lines, ignored by the model">Notes</button>
+          <button data-layer="line" aria-pressed="true" title="Outline: the silhouette the figure fills">Outline</button><button data-layer="feature" aria-pressed="false" title="Features: eyes, mouth, muscle lines, marks">Features</button><button data-layer="note" aria-pressed="false" title="Notes: construction lines, ignored by the model">Notes</button>
         </div>
+        <input type="color" class="swatch-in" id="pen-color" value="#1b1f27" title="Pen colour: strokes of one colour on the Features layer form one group" aria-label="Pen colour">
         <div class="seg" id="face2d" role="group" aria-label="Front or back">
-          <button data-face="front" aria-pressed="true" title="Front view: features on the front of the body">Front</button><button data-face="back" aria-pressed="false" title="Back view: the same outline seen from behind; features go on the back of the body">Back</button>
+          <button data-face="front" aria-pressed="true" title="Front: features on the front of the body">Front</button><button data-face="back" aria-pressed="false" title="Back: the same outline seen from behind; features go on the back of the body">Back</button>
         </div>
-        <label class="toggle" title="Strokes on one side of the centre line get a mirrored twin; a half outline from the centre line closes itself"><input type="checkbox" id="mirror-draw" checked>mirror</label>
-        <span class="label">Show</span>
-        <label class="toggle"><input type="checkbox" data-show2d="features" checked>features</label>
-        <label class="toggle"><input type="checkbox" data-show2d="hull" checked>hull</label>
-        <label class="toggle"><input type="checkbox" data-show2d="fit" checked>fit</label>
-        <label class="toggle"><input type="checkbox" data-show2d="stations" checked>stations</label>
-        <label class="toggle"><input type="checkbox" data-show2d="heads">head units</label>
-        <label class="toggle"><input type="checkbox" data-show2d="mesh" checked>loops</label>
-        <label class="toggle"><input type="checkbox" data-show2d="parts">part boxes</label>
-        <label class="toggle"><input type="checkbox" data-show2d="bg" checked>image</label>
-        <button class="btn" id="btn-fit2d" title="Fit the sheet to the pane">Fit</button>
+        <label class="toggle" title="A stroke on one side of the centre line gets a mirrored twin; half an outline from the centre line closes itself"><input type="checkbox" id="mirror-draw" checked>mirror</label>
+        <div class="spacer"></div>
+        <details class="menu">
+          <summary class="btn">View</summary>
+          <div class="menu-body">
+            <label class="toggle"><input type="checkbox" data-show2d="features" checked>features</label>
+            <label class="toggle"><input type="checkbox" data-show2d="hull" checked>filled outline</label>
+            <label class="toggle"><input type="checkbox" data-show2d="fit" checked>fit check (red outside, blue not filled)</label>
+            <label class="toggle"><input type="checkbox" data-show2d="stations" checked>height lines</label>
+            <label class="toggle"><input type="checkbox" data-show2d="heads">head units</label>
+            <label class="toggle"><input type="checkbox" data-show2d="mesh">mesh loops</label>
+            <label class="toggle"><input type="checkbox" data-show2d="parts">part boxes</label>
+            <label class="toggle"><input type="checkbox" data-show2d="bg" checked>reference image</label>
+            <hr>
+            <button class="btn" id="btn-fit2d" title="Fit the sheet to the pane">Fit the sheet to the pane</button>
+            <div class="seg" role="group" aria-label="More tools"><button data-tool2="fill" title="Click an enclosed area of the side view to make it the arm cross-section (F)">Fill arm section</button><button data-tool2="landmark" title="Place a point in both views (L)">Landmark</button></div>
+          </div>
+        </details>
       </div>
       <div class="stage" id="stage2d">
         <canvas id="c2d"></canvas>
         <div class="drop" id="drop">Drop an SVG or image to load it</div>
         <div class="overlay-note" id="note2d"></div>
-        <div class="legend"><span><i style="background:var(--over)"></i>balloon outside</span><span><i style="background:var(--under)"></i>not filled yet</span></div>
       </div>
     </section>
     <section class="pane pane-3d" aria-label="3D model">
@@ -184,14 +219,21 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
         <div class="seg" role="group" aria-label="Camera">
           <button data-cam="front">Front</button><button data-cam="side">Side</button><button data-cam="back">Back</button><button data-cam="three">¾</button>
         </div>
-        <label class="toggle"><input type="checkbox" id="ortho">flat</label>
-        <div class="seg" id="shading" role="group" aria-label="Shading">
-          <button data-shade="clay" aria-pressed="true">Clay</button><button data-shade="parts" aria-pressed="false">Parts</button><button data-shade="tags" aria-pressed="false">Tags</button><button data-shade="poles" aria-pressed="false">Poles</button>
-        </div>
-        <label class="toggle"><input type="checkbox" data-show3d="wire" checked>quads</label>
-        <label class="toggle"><input type="checkbox" data-show3d="cage" checked>cage</label>
-        <label class="toggle"><input type="checkbox" data-show3d="loops" checked>loops</label>
-        <label class="toggle"><input type="checkbox" data-show3d="drawings" checked>drawings</label>
+        <div class="spacer"></div>
+        <details class="menu">
+          <summary class="btn">View</summary>
+          <div class="menu-body">
+            <div class="seg" id="shading" role="group" aria-label="Shading">
+              <button data-shade="clay" aria-pressed="true">Clay</button><button data-shade="parts" aria-pressed="false">Parts</button><button data-shade="tags" aria-pressed="false">Groups</button><button data-shade="poles" aria-pressed="false">Poles</button>
+            </div>
+            <label class="toggle"><input type="checkbox" id="ortho">flat (no perspective)</label>
+            <label class="toggle"><input type="checkbox" data-show3d="wire" checked>quads</label>
+            <label class="toggle"><input type="checkbox" data-show3d="cage">cage edges</label>
+            <label class="toggle"><input type="checkbox" data-show3d="loops" checked>station loops</label>
+            <label class="toggle"><input type="checkbox" data-show3d="drawings">drawings</label>
+            <label class="toggle"><input type="checkbox" id="rig-show" checked>skeleton</label>
+          </div>
+        </details>
         <button class="btn primary" id="btn-run" aria-pressed="false">Inflate</button>
       </div>
       <div class="stage" id="stage3d">
@@ -199,188 +241,167 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
         <div class="overlay-note" id="note3d"></div>
       </div>
     </section>
-    <aside class="panel" aria-label="Settings">
-      <div class="tabs" role="tablist">
-        <button class="tab" role="tab" data-tab="drawing" aria-selected="true">Drawing</button>
-        <button class="tab" role="tab" data-tab="stations" aria-selected="false">Stations</button>
-        <button class="tab" role="tab" data-tab="topology" aria-selected="false">Topology</button>
-        <button class="tab" role="tab" data-tab="balloon" aria-selected="false">Balloon</button>
-        <button class="tab" role="tab" data-tab="tags" aria-selected="false">Tags</button>
-        <button class="tab" role="tab" data-tab="rig" aria-selected="false">Rig</button>
-      </div>
+    <aside class="panel" aria-label="Step settings">
 
-      <div class="tabpanel" data-panel="drawing">
+      <div class="tabpanel" data-panel="draw">
+        <div class="group">
+          <h3>Start from</h3>
+          <div class="btn-row"><select id="sel-sample" aria-label="Load a reference figure"></select><button class="btn" id="btn-open">Open drawing…</button></div>
+          <p class="hint">A reference figure, or your own SVG or image with a front view and a side view side by side.</p>
+        </div>
         <div class="group">
           <h3>Selected stroke</h3>
           <div id="sel-card"></div>
         </div>
         <div class="group">
-          <h3>Layers, front and back, symmetry</h3>
-          <p class="hint">The pen draws on the active layer (toolbar): <b>Outline</b> is the silhouette the balloon fills; <b>Features</b> are eyes, mouth, muscle lines and tags; <b>Notes</b> are ignored. Other layers dim and can't be picked. <b>Back</b> shows the front view from behind: same outline, and features drawn there go on the back of the body. With <b>mirror</b> on, a stroke on one side of the centre line gets a twin, and half an outline drawn from the centre line closes itself.</p>
-          <div class="row"><label>Make the front view symmetric, keeping</label><div class="btn-row"><button class="btn" id="btn-sym-left">left half</button><button class="btn" id="btn-sym-right">right half</button></div></div>
+          <h3>Symmetry</h3>
+          <div class="row"><label>Rebuild the front view from its</label><div class="btn-row"><button class="btn" id="btn-sym-left">left half</button><button class="btn" id="btn-sym-right">right half</button></div></div>
         </div>
         <div class="group">
-          <h3>Outline</h3>
-          <div class="slider"><label for="gap">Close gaps up to</label><span class="val" id="gap-val"></span><input type="range" id="gap" min="0.2" max="3" step="0.1" value="1.2"></div>
-          <p class="hint">Strokes are drawn thick by this amount before the inside is filled, so small breaks in an outline still close. If the tinted hull leaks into the background, raise it or draw the missing bit with the pen.</p>
-          <div class="row"><label for="height">Figure height (m)</label><input type="number" id="height" min="0.3" max="4" step="0.01" value="1.80"></div>
+          <h3>Figure</h3>
+          <div class="row"><label for="height">Height (m)</label><input type="number" id="height" min="0.3" max="4" step="0.01" value="1.80"></div>
+          <div class="row"><label for="canon">Proportions</label><select id="canon"><option value="4">4 heads (1 year)</option><option value="5">5 heads (3 years)</option><option value="6">6 heads (5 years)</option><option value="7">7 heads (10 years)</option><option value="7.5">7.5 heads (15 years, realistic adult)</option><option value="8" selected>8 heads (ideal adult)</option><option value="9">9 heads (heroic)</option></select></div>
           <div class="row"><label>Side view faces</label><div class="seg" id="facing"><button data-facing="left">left</button><button data-facing="right">right</button></div></div>
-          <div class="row"><label for="import-mode">Open files as</label><select id="import-mode"><option value="both">both views in one file</option><option value="front">front view only</option><option value="side">side view only</option></select></div>
         </div>
-        <div class="group">
-          <h3>Arm cross-section</h3>
-          <div class="row"><span id="section-state"></span><button class="btn" id="btn-clear-section">Clear</button></div>
-          <p class="hint">In a T-pose the side view sees each arm end-on. With <b>Fill</b>, click inside that shape in the side view and the arms take its depth, tapering with the front view.</p>
-        </div>
-        <div class="group">
-          <h3>Strokes</h3>
-          <div class="stats" id="stroke-stats"></div>
-          <p class="hint"><b>Outline</b> strokes build the hull. <b>Features</b> (coloured) become tags. <b>Height lines</b> and <b>notes</b> are ignored by the maths. A <b>cross-section</b> in the side view (like the arm circle at the shoulder) sets the arm's depth.</p>
-        </div>
-        <div class="group">
-          <h3>Keys</h3>
-          <p class="hint"><kbd>V</kbd> select · <kbd>P</kbd> pen · <kbd>E</kbd> erase · <kbd>F</kbd> fill · <kbd>L</kbd> landmark · <kbd>Del</kbd> delete stroke · <kbd>Space</kbd>+drag or right-drag to pan · wheel to zoom</p>
-        </div>
+        <details class="adv">
+          <summary>Heights and arm stations</summary>
+          <div class="adv-body">
+            <p class="hint">Named heights shared by both views; each places a ring of the mesh. Drag a line in either view to move it.</p>
+            <div class="btn-row"><button class="btn" id="btn-fit-st">Fit to the drawing</button><button class="btn" id="btn-canon-st">Use the proportions</button></div>
+            <label class="toggle"><input type="checkbox" id="st-auto" checked>refit whenever the drawing changes</label>
+            <div class="stats" id="heads-readout"></div>
+            <div class="st-table" id="st-table"></div>
+            <h3>Across the arms (front view)</h3>
+            <div class="st-table" id="arm-table"></div>
+          </div>
+        </details>
+        <details class="adv">
+          <summary>Advanced</summary>
+          <div class="adv-body">
+            <div class="slider"><label for="gap">Close gaps in the outline up to</label><span class="val" id="gap-val"></span><input type="range" id="gap" min="0.2" max="3" step="0.1" value="1.2"></div>
+            <div class="row"><label for="import-mode">Open files as</label><select id="import-mode"><option value="both">both views in one file</option><option value="front">front view only</option><option value="side">side view only</option></select></div>
+            <h3>Arm cross-section</h3>
+            <div class="row"><span id="section-state"></span><button class="btn" id="btn-clear-section">Clear</button></div>
+            <p class="hint">In a T-pose the side view sees the arm end-on. View → Fill arm section, then click inside that shape in the side view.</p>
+            <h3>Calibration</h3>
+            <div class="stats" id="cal-readout"></div>
+            <button class="btn" id="btn-cal-reset">Reset to automatic</button>
+            <h3>Landmarks</h3>
+            <p class="hint">View → Landmark: click a point in the front view, then the same point in the side view. The mesh is pinned there.</p>
+            <div class="lm-list" id="lm-list"></div>
+            <label class="toggle"><input type="checkbox" id="pins-on" checked>pin the mesh to landmarks</label>
+            <h3>Strokes</h3>
+            <div class="stats" id="stroke-stats"></div>
+            <p class="hint"><kbd>V</kbd> select · <kbd>P</kbd> pen · <kbd>E</kbd> erase · <kbd>F</kbd> fill · <kbd>L</kbd> landmark · <kbd>Del</kbd> delete · <kbd>Space</kbd>+drag or right-drag to pan · wheel to zoom</p>
+          </div>
+        </details>
+        <div class="next"><button class="btn primary" data-goto="inflate">Next: inflate →</button></div>
       </div>
 
-      <div class="tabpanel" data-panel="stations" hidden>
+      <div class="tabpanel" data-panel="inflate" hidden>
         <div class="group">
-          <h3>Proportions</h3>
-          <div class="row"><label for="canon">Canon</label><select id="canon"><option value="4">4 heads (1 year)</option><option value="5">5 heads (3 years)</option><option value="6">6 heads (5 years)</option><option value="7">7 heads (10 years)</option><option value="7.5">7.5 heads (15 years, realistic adult)</option><option value="8" selected>8 heads (ideal adult)</option><option value="9">9 heads (heroic)</option></select></div>
-          <div class="btn-row"><button class="btn" id="btn-fit-st">Fit stations to drawing</button><button class="btn" id="btn-canon-st">Use canon</button></div>
-          <label class="toggle"><input type="checkbox" id="st-auto" checked>refit stations whenever the drawing changes</label>
-          <div class="stats" id="heads-readout"></div>
-        </div>
-        <div class="group">
-          <h3>Heights (shared by both views)</h3>
-          <div class="st-table" id="st-table"></div>
-          <p class="hint">Drag any station line in either view. Each station places an edge loop, and joints get a band of extra loops.</p>
-        </div>
-        <div class="group">
-          <h3>Arm stations (front view, across)</h3>
-          <div class="st-table" id="arm-table"></div>
-        </div>
-        <div class="group">
-          <h3>Calibration</h3>
-          <div class="stats" id="cal-readout"></div>
-          <button class="btn" id="btn-cal-reset">Reset to automatic</button>
-        </div>
-        <div class="group">
-          <h3>Landmarks</h3>
-          <p class="hint">With <b>Landmark</b>, click a point in the front view, then the same point in the side view. The pair fixes one 3D point, and the nearest vertex is pinned to it.</p>
-          <div class="lm-list" id="lm-list"></div>
-          <label class="toggle"><input type="checkbox" id="pins-on" checked>pin the mesh to landmarks</label>
-        </div>
-      </div>
-
-      <div class="tabpanel" data-panel="topology" hidden>
-        <div class="group">
-          <h3>Cage</h3>
-          <div class="row"><label>Vertices around each ring</label><div class="seg" id="ringN"><button data-n="8">8</button><button data-n="16">16</button><button data-n="24">24</button></div></div>
-          <div class="slider"><label for="rings">Loops per segment</label><span class="val" id="rings-val"></span><input type="range" id="rings" min="0" max="5" step="1" value="2"></div>
-          <div class="slider"><label for="headRings">Loops in the head</label><span class="val" id="headRings-val"></span><input type="range" id="headRings" min="0" max="5" step="1" value="2"></div>
-          <label class="toggle"><input type="checkbox" id="jointLoops" checked>joint bands at knees, elbows and wrists</label>
-        </div>
-        <div class="group">
-          <h3>Hands and feet</h3>
-          <label class="toggle"><input type="checkbox" id="digits" checked>separate fingers, thumb and toes</label>
-          <div class="slider"><label for="fingerRings">Loops per finger and thumb</label><span class="val" id="fingerRings-val"></span><input type="range" id="fingerRings" min="1" max="5" step="1" value="3"></div>
-          <div class="slider"><label for="toeRings">Loops per toe</label><span class="val" id="toeRings-val"></span><input type="range" id="toeRings" min="1" max="3" step="1" value="1"></div>
-          <div class="slider"><label for="footRings">Loops along the foot</label><span class="val" id="footRings-val"></span><input type="range" id="footRings" min="1" max="5" step="1" value="2"></div>
-          <div class="slider"><label for="handRings">Loops in a mitten hand (fingers off)</label><span class="val" id="handRings-val"></span><input type="range" id="handRings" min="0" max="4" step="1" value="1"></div>
-          <p class="hint">The round 8m-vertex wrist widens to the flat palm, and again at the knuckles, through <b>1-to-3 units</b>: one edge becomes three, with a 3-edge and a 5-edge pole. Read the other way it is the usual 3-to-1 reduction from the fingers down to the wrist. Units never touch, so there are no 6-edge poles. Fingers are separated by web faces; the thumb leaves the side of the palm near the wrist. The foot leaves the front of the ankle and widens twice for the toes.</p>
-        </div>
-        <div class="group">
-          <h3>Face</h3>
-          <label class="toggle"><input type="checkbox" id="face" checked>face loops (a loop round the face, two round each eye, two round the mouth)</label>
-          <label class="toggle"><input type="checkbox" id="faceRefine" checked>twice the density inside the face loop (the loop's ring steps between densities)</label>
-          <p class="hint">Head rings sit at Loomis's face heights: mouth, nose base, eyes, brow. The loops are insets of face blocks. Eyes need 16 or more vertices round each ring.</p>
-        </div>
-        <div class="group">
-          <h3>Resolution</h3>
-          <div class="slider"><label for="level">Subdivision level</label><span class="val" id="level-val"></span><input type="range" id="level" min="0" max="3" step="1" value="1"></div>
-        </div>
-        <div class="group">
-          <h3>Layout</h3>
-          <div class="stats" id="topo-stats"></div>
-          <p class="hint">A <b>pole</b> is a vertex where 3 or 5 edges meet instead of 4. Loops can only turn, split or merge at poles, so pole placement is the topology. This cage puts them at the armpit and shoulder corners, at both ends of the crotch chain, and at the corners of the head, hand and foot caps. Shade by <b>Poles</b> to see them.</p>
-          <p class="hint">Subdivision splits every quad into four without moving the poles, so the flow of the cage is kept at every level.</p>
-        </div>
-      </div>
-
-      <div class="tabpanel" data-panel="balloon" hidden>
-        <div class="group">
-          <h3>Inflation</h3>
-          <div class="btn-row"><button class="btn primary" id="btn-restart">Deflate and reinflate</button></div>
-          <div class="slider"><label for="pressure">Pressure</label><span class="val" id="pressure-val"></span><input type="range" id="pressure" min="0" max="3" step="0.05" value="1"></div>
-          <div class="slider"><label for="tension">Surface smoothing (tension)</label><span class="val" id="tension-val"></span><input type="range" id="tension" min="0" max="2" step="0.05" value="0.5"></div>
-          <p class="hint">Pressure pushes every part outward at the same speed until it reaches its rounded profile, then lets go. The push is smoothed across neighbours so fine loops (eyes, mouth, finger webs) travel with their surroundings. Tension only smooths the surface. Hands and feet, built close to shape, get a gentler fit.</p>
-          <div class="slider"><label for="profile">Cross-section shape</label><span class="val" id="profile-val"></span><input type="range" id="profile" min="2" max="12" step="0.1" value="2.2"></div>
-          <p class="hint">By default every cross-section inflates into a rounded profile that just fits the box the two drawings allow: it touches the front outline at its sides and the side outline front and back, but not the box's corners. 2 is an ellipse; higher values square it off; the far end lets the balloon fill the whole box. Hands and feet are left to the top view.</p>
-          <div class="slider"><label for="relax">Even out quads</label><span class="val" id="relax-val"></span><input type="range" id="relax" min="0" max="0.8" step="0.02" value="0.3"></div>
-          <div class="slider"><label for="anchor">Hold loops on stations</label><span class="val" id="anchor-val"></span><input type="range" id="anchor" min="0" max="0.6" step="0.01" value="0.15"></div>
-          <div class="slider"><label for="shrink">Start size</label><span class="val" id="shrink-val"></span><input type="range" id="shrink" min="0.15" max="1" step="0.05" value="0.5"></div>
-          <div class="slider"><label for="armDepth">Arm depth without a cross-section</label><span class="val" id="armDepth-val"></span><input type="range" id="armDepth" min="0.4" max="1.6" step="0.05" value="1"></div>
-          <div class="slider"><label for="steps">Steps per frame</label><span class="val" id="steps-val"></span><input type="range" id="steps" min="1" max="30" step="1" value="6"></div>
-          <label class="toggle"><input type="checkbox" id="constrain" checked>keep the balloon inside both drawings</label>
-          <label class="toggle"><input type="checkbox" id="symmetry" checked>mirror left and right</label>
-          <label class="toggle"><input type="checkbox" id="faceDetail" checked>then work the face, hands and feet in finer steps (face features; each finger and toe along its shape in the top view)</label>
-        </div>
-        <div class="group">
-          <h3>Fit to the drawings</h3>
+          <h3>Inflate</h3>
+          <div class="btn-row"><button class="btn primary big" id="btn-run2">Inflate</button><button class="btn" id="btn-restart">Start over</button></div>
+          <p class="hint">The mesh blows up inside both outlines until every cross-section reaches a rounded shape that fits them. Then the face, hands and feet are worked in finer steps (step 3).</p>
           <div class="stats" id="fit-stats"></div>
         </div>
+        <div class="group">
+          <h3>Mesh density</h3>
+          <div class="row"><label>Points around each ring</label><div class="seg" id="ringN"><button data-n="8">8</button><button data-n="16">16</button><button data-n="24">24</button></div></div>
+          <div class="slider"><label for="rings">Rings between heights</label><span class="val" id="rings-val"></span><input type="range" id="rings" min="0" max="5" step="1" value="2"></div>
+          <div class="slider"><label for="level">Smoothing subdivisions</label><span class="val" id="level-val"></span><input type="range" id="level" min="0" max="3" step="1" value="1"></div>
+          <div class="stats" id="topo-stats"></div>
+        </div>
+        <div class="group">
+          <h3>Shape</h3>
+          <div class="slider"><label for="profile">Cross-sections: round ↔ boxy</label><span class="val" id="profile-val"></span><input type="range" id="profile" min="2" max="12" step="0.1" value="2.2"></div>
+        </div>
+        <details class="adv">
+          <summary>Topology details</summary>
+          <div class="adv-body">
+            <label class="toggle"><input type="checkbox" id="jointLoops" checked>extra rings at knees, elbows and wrists</label>
+            <div class="slider"><label for="headRings">Rings in the head (face loops off)</label><span class="val" id="headRings-val"></span><input type="range" id="headRings" min="0" max="5" step="1" value="2"></div>
+            <label class="toggle"><input type="checkbox" id="digits" checked>separate fingers, thumb and toes</label>
+            <div class="slider"><label for="fingerRings">Rings per finger</label><span class="val" id="fingerRings-val"></span><input type="range" id="fingerRings" min="1" max="5" step="1" value="3"></div>
+            <div class="slider"><label for="toeRings">Rings per toe</label><span class="val" id="toeRings-val"></span><input type="range" id="toeRings" min="1" max="3" step="1" value="1"></div>
+            <div class="slider"><label for="footRings">Rings along the foot</label><span class="val" id="footRings-val"></span><input type="range" id="footRings" min="1" max="5" step="1" value="2"></div>
+            <div class="slider"><label for="handRings">Rings in a mitten hand (fingers off)</label><span class="val" id="handRings-val"></span><input type="range" id="handRings" min="0" max="4" step="1" value="1"></div>
+            <p class="hint">A <b>pole</b> is a point where 3 or 5 edges meet instead of 4; loops can only turn, split or join there. View → Poles shows them.</p>
+          </div>
+        </details>
+        <details class="adv">
+          <summary>Advanced (inflation physics)</summary>
+          <div class="adv-body">
+            <div class="slider"><label for="pressure">Pressure</label><span class="val" id="pressure-val"></span><input type="range" id="pressure" min="0" max="3" step="0.05" value="1"></div>
+            <div class="slider"><label for="tension">Surface smoothing</label><span class="val" id="tension-val"></span><input type="range" id="tension" min="0" max="2" step="0.05" value="0.5"></div>
+            <div class="slider"><label for="relax">Even out quads</label><span class="val" id="relax-val"></span><input type="range" id="relax" min="0" max="0.8" step="0.02" value="0.3"></div>
+            <div class="slider"><label for="anchor">Hold rings on their heights</label><span class="val" id="anchor-val"></span><input type="range" id="anchor" min="0" max="0.6" step="0.01" value="0.15"></div>
+            <div class="slider"><label for="shrink">Start size</label><span class="val" id="shrink-val"></span><input type="range" id="shrink" min="0.15" max="1" step="0.05" value="0.5"></div>
+            <div class="slider"><label for="armDepth">Arm depth without a cross-section</label><span class="val" id="armDepth-val"></span><input type="range" id="armDepth" min="0.4" max="1.6" step="0.05" value="1"></div>
+            <div class="slider"><label for="steps">Steps per frame</label><span class="val" id="steps-val"></span><input type="range" id="steps" min="1" max="30" step="1" value="6"></div>
+            <label class="toggle"><input type="checkbox" id="constrain" checked>keep inside both drawings</label>
+            <label class="toggle"><input type="checkbox" id="symmetry" checked>mirror left and right</label>
+          </div>
+        </details>
+        <div class="next"><button class="btn" data-goto="draw">← Draw</button><button class="btn primary" data-goto="refine">Next: refine →</button></div>
       </div>
 
-      <div class="tabpanel" data-panel="tags" hidden>
+      <div class="tabpanel" data-panel="refine" hidden>
         <div class="group">
-          <h3>Tag groups</h3>
-          <p class="hint">Coloured strokes become tags on the surface that faces their view. Each group can change the balloon locally, or pull the nearest edge loop onto its open lines.</p>
+          <h3>Face, hands and feet</h3>
+          <label class="toggle"><input type="checkbox" id="faceDetail" checked>work them in finer steps after the body settles</label>
+          <label class="toggle"><input type="checkbox" id="face" checked>face loops: round the face, the eyes and the mouth</label>
+          <label class="toggle"><input type="checkbox" id="faceRefine" checked>twice as many quads inside the face loop</label>
+          <p class="hint">The face takes its shape from the Features layer: eyes, brows, nose base and mouth drawn in the front view, matched by height to the same features in the side view. Each finger and toe follows its own shape in the top view.</p>
+        </div>
+        <div class="group">
+          <h3>Feature groups</h3>
+          <p class="hint">Strokes of one colour on the Features layer form a group, marked on the surface facing their view. A group can make that area puff out or flatten, or pull the nearest ring onto its line.</p>
           <div class="tag-list" id="tag-list"></div>
           <div class="btn-row"><button class="btn" id="btn-newtag">New group</button></div>
         </div>
-        <div class="group">
-          <h3>Paint on the model</h3>
-          <label class="toggle"><input type="checkbox" id="paint-on">paint in the 3D view (Alt-drag still orbits)</label>
-          <div class="row"><label for="paint-group">Group</label><select id="paint-group"></select></div>
-          <div class="slider"><label for="brush">Brush size</label><span class="val" id="brush-val"></span><input type="range" id="brush" min="4" max="80" step="1" value="22"></div>
-          <label class="toggle"><input type="checkbox" id="paint-erase">erase (or hold Shift)</label>
-          <p class="hint">Paint is stored as positions on the body, not vertex numbers, so it survives any change of topology.</p>
-        </div>
-        <div class="group">
-          <h3>Export</h3>
-          <div class="row"><label for="exp-level">Resolution</label><select id="exp-level"></select></div>
-          <div class="btn-row"><button class="btn primary" id="btn-export2">Download OBJ + tags (.zip)</button><button class="btn" id="btn-copy-obj">Copy OBJ</button></div>
-          <p class="hint">Lower levels take the cage's own vertices off the inflated surface, so a level-0 export is a low-poly retopology of the balloon with the same loops.</p>
-        </div>
+        <details class="adv">
+          <summary>Paint groups on the model</summary>
+          <div class="adv-body">
+            <label class="toggle"><input type="checkbox" id="paint-on">paint in the 3D view (Alt-drag still orbits)</label>
+            <div class="row"><label for="paint-group">Group</label><select id="paint-group"></select></div>
+            <div class="slider"><label for="brush">Brush size</label><span class="val" id="brush-val"></span><input type="range" id="brush" min="4" max="80" step="1" value="22"></div>
+            <label class="toggle"><input type="checkbox" id="paint-erase">erase (or hold Shift)</label>
+          </div>
+        </details>
+        <div class="next"><button class="btn" data-goto="inflate">← Inflate</button><button class="btn primary" data-goto="rig">Next: rig &amp; export →</button></div>
       </div>
+
       <div class="tabpanel" data-panel="rig" hidden>
         <div class="group">
           <h3>Skeleton</h3>
-          <p class="hint">A skeleton fitted to the inflated figure. The built-in one uses Mixamo-style joint names. <b>Load rig</b> takes another skeleton (our JSON, BVH, or the skeleton of a glTF/GLB model); its joints are matched to body points by name (Mixamo, Unreal, Rigify and similar), and the match can be changed below.</p>
           <div class="stats" id="rig-status"></div>
-          <div class="btn-row"><button class="btn primary" id="btn-rig-fit">Fit to body</button><button class="btn" id="btn-rig-load">Load rig…</button><button class="btn" id="btn-rig-base">Use built-in</button></div>
+          <div class="btn-row"><button class="btn primary" id="btn-rig-fit">Fit to body</button><button class="btn" id="btn-rig-load">Load rig…</button><button class="btn" id="btn-rig-base">Built-in</button></div>
           <input type="file" id="rig-file" accept=".json,.bvh,.gltf,.glb" hidden>
-          <label class="toggle"><input type="checkbox" id="rig-show" checked>show the skeleton</label>
+          <p class="hint">Fitted automatically when inflation finishes. <b>Load rig</b> takes another skeleton (JSON, BVH, or a glTF/GLB model's); joints are matched by name (Mixamo, Unreal, Rigify and similar).</p>
         </div>
         <div class="group">
           <h3>Bend test</h3>
-          <p class="hint">Poses the figure with its skin weights. Watch the joints: volume lost, quads squashed flat or turned inside out.</p>
           <div id="pose-sliders"></div>
           <div class="stats" id="pose-report"></div>
           <label class="toggle"><input type="checkbox" id="pose-strain">colour by stretch (blue squashed, red stretched)</label>
           <div class="btn-row"><button class="btn" id="btn-pose-reset">Rest pose</button></div>
         </div>
         <div class="group">
-          <h3>Joints and body points</h3>
-          <p class="hint">Joints left without a body point keep their place between matched ones (twist and extra spine joints), or their offset from their parent.</p>
-          <div class="rig-map" id="rig-map"></div>
-        </div>
-        <div class="group">
           <h3>Export</h3>
-          <div class="btn-row"><button class="btn primary" id="btn-glb">Download rigged glTF (.glb)</button><button class="btn" id="btn-rig-json">Rig as JSON</button></div>
-          <p class="hint">glTF carries the mesh (triangulated), the skeleton and the skin weights, at the resolution chosen under Tags → Export. Joints are exported unrotated (world-aligned).</p>
+          <div class="row"><label for="exp-level">Resolution</label><select id="exp-level"></select></div>
+          <div class="btn-row"><button class="btn primary" id="btn-glb">Rigged glTF (.glb)</button><button class="btn" id="btn-export2">OBJ + groups (.zip)</button></div>
+          <div class="btn-row"><button class="btn" id="btn-copy-obj">Copy OBJ</button><button class="btn" id="btn-rig-json">Rig as JSON</button></div>
+          <p class="hint">glTF carries mesh, skeleton and skin weights; OBJ keeps the quads, with the parts, groups and loops in a JSON file beside it.</p>
         </div>
+        <details class="adv">
+          <summary>Joints and body points</summary>
+          <div class="adv-body">
+            <p class="hint">Which body point each joint sits on. Joints left without one keep their place between matched joints, or their offset from their parent.</p>
+            <div class="rig-map" id="rig-map"></div>
+          </div>
+        </details>
+        <div class="next"><button class="btn" data-goto="refine">← Refine</button></div>
       </div>
     </aside>
   </div>
