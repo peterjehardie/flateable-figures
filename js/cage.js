@@ -204,7 +204,8 @@ export function buildCage(M, P) {
   // 0.25 of the finger), then one at `lead` (the first ring: the detail pass lays the digit out
   // from there), then bands either side of the joints so they can bend. { t, joint: 1 | 2 | 0 }
   const knuckleRings = (n, [j1, j2], lead) => {
-    const cand = [{ t: j1, joint: 1 }, { t: j2, joint: 2 }, { t: lead, joint: 0 },
+    // the lead ring comes first: the detail pass needs it even when there is only one ring
+    const cand = [{ t: lead, joint: 0 }, { t: j1, joint: 1 }, { t: j2, joint: 2 },
       { t: j1 - 0.06, joint: 0 }, { t: j1 + 0.06, joint: 0 }, { t: j2 - 0.05, joint: 0 }, { t: j2 + 0.05, joint: 0 }];
     const out = cand.slice(0, Math.min(n, cand.length));
     // more rings than that: halve the longest gaps
@@ -605,7 +606,9 @@ export function buildCage(M, P) {
     // N = 16 a second lens in front, round the kneecap. The knee ring goes round one side of one
     // lens and the other side of the other, so its centre (the rig's knee) stays put.
     const jK = legYs.findIndex((r) => r.name === 'knee' && r.station) + 1;
-    if (jK > 1 && jK + 1 < rings.length) {
+    // (with few rings the knee's first band is the buttock-fold lens's own: two lenses may not cut
+    // the same quads, so the knee patterns need a ring of their own between them)
+    if (jK > 3 && jK + 1 < rings.length) {
       const R0 = rings[jK - 1], R1 = rings[jK], R2 = rings[jK + 1], yK = ringY[jK];
       for (const [R, yb] of [[R0, ringY[jK - 1]], [R2, ringY[jK + 1]]]) {
         R.forEach((v, q) => { const y = yK + (yb - yK) * (1 + 0.6 * Math.max(0, back(q))); pos[3 * v + 1] = y; anchorVal[v] = y; });
@@ -736,6 +739,8 @@ export function buildCage(M, P) {
   // the deltoid: one more ring between the arm hole and the upper arm, round the shoulder joint
   const xSide = M.trunk((W.armpit + W.shoulder) / 2).rx;
   const xDelt = Math.min(0.5 * (xSide + armXs[0].v), armXs[0].v - 0.004 * H);
+  // how far it may lean each way without reaching the arm hole or the next ring
+  const deltGap = Math.max(0, Math.min(armXs[0].v - xDelt, xDelt - W.shoulderX));
   armXs.unshift({ v: xDelt, name: 'deltoid' });
   for (const sign of [1, -1]) {
     const side = sign > 0 ? 'L' : 'R';
@@ -752,7 +757,7 @@ export function buildCage(M, P) {
         const z = sec.cz - sign * s0 * sec.rz * Math.sin(w);
         // the deltoid ring leans in at the top: over the shoulder it sits near the neck, under the
         // arm out in the armpit, as the cap of the deltoid does
-        const xq = name === 'deltoid' ? x + 0.4 * s0 * sec.ry * Math.cos(w) : x;
+        const xq = name === 'deltoid' ? x + Math.min(0.4 * s0 * sec.ry, 0.8 * deltGap) * Math.cos(w) : x;
         ring.push(addV(sign * xq, y, z, 0, sign * xq, rho(sec.rz, sec.ry, w, r)));
       }
       rings.push(ring);

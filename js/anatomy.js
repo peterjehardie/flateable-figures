@@ -185,7 +185,8 @@ export function loopAnatomy(name) {
   const M = {
     face: 'face outline', eye: 'eye socket rim', eyelid: 'eyelid edge', mouth: 'mouth corners (outer lip ring)', lips: 'lip line',
     crotch: 'groin ring', hip: 'hip ring', waist: 'waist', armpit: 'armpit ring', shoulder: 'shoulder line', neck: 'neck ring', chin: 'jaw and chin ring',
-    'mouth low': 'below the mouth', 'mouth high': 'above the mouth', nose: 'nose ring', 'eye low': 'under the eyes', 'eye high': 'over the eyes', brow: 'brow ring', crown: 'crown',
+    'mouth low': 'below the mouth', 'mouth high': 'above the mouth', nostrils: 'ring at the nostrils', 'eye low': 'under the eyes', 'eye high': 'over the eyes', forehead: 'ring over the brow', crown: 'crown',
+    nose: 'nose loop', brow: 'brow loop over the eyes',
     knee: 'knee axis', 'knee band': 'knee bend band', ankle: 'ankle', sole: 'sole', 'upper thigh': 'top of the thigh',
     elbow: 'elbow axis', 'elbow band': 'elbow bend band', wrist: 'wrist', 'wrist band': 'wrist bend band', 'upper arm': 'top of the arm',
     deltoid: 'deltoid (shoulder cap)', clavicle: 'collarbone line', pectoral: 'chest muscle edge', scapula: 'shoulder blade', 'gluteal fold': 'buttock fold', groin: 'groin line', 'hip joint': 'hip joint',

@@ -9,6 +9,9 @@
 import { createDoc, newPath, prepareImported } from './doc.js';
 
 const U = 200; // document units per head
+// Raised whenever the reference drawings change, so saved sessions holding an older copy of a
+// reference figure are refreshed (2: hands and feet drawn as one outline each).
+export const FIGURE_VERSION = 2;
 
 // ---------- authored outlines (head units) ----------
 // Point: [x, y] or [x, y, 'c'] for a corner. Region tags drive the age remapping.
@@ -269,5 +272,6 @@ export function buildFigure(key) {
   prepareImported(doc, { keepRoles: true });
   for (const g of Object.values(doc.groups)) g.loop = false;
   doc.figureKey = key;
+  doc.figureVersion = FIGURE_VERSION;
   return doc;
 }

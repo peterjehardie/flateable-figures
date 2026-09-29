@@ -1,7 +1,7 @@
 // App controller: owns the document and the pipeline, wires the panels.
 
 import { createDoc, prepareImported, exportSVG, loadProjectSVG, ensureGroups, assignViews, defaultGroup, ROLES, newPath, viewAtPoint } from './doc.js';
-import { buildFigure, PRESETS } from './figure.js';
+import { buildFigure, PRESETS, FIGURE_VERSION } from './figure.js';
 import { traceImageData } from './trace.js';
 import { buildMasks, calibrate, detectSection, buildModel } from './pipeline.js';
 import { Frame, HEIGHT_STATIONS, ARM_STATIONS, STATION_LABEL, canonStations, autoStations, sanitizeStations } from './stations.js';
@@ -204,11 +204,14 @@ function applyShading() {
 let frameNo = 0, lastFit = 0;
 // Settled also when movement has stopped getting smaller: a dense mesh keeps a small shimmer
 // above the threshold (spread thin over the whole body), and would otherwise never stop.
-const plat = { best: Infinity, at: 0 };
+// Counted from when this run started (a continue or a new setting starts a new count).
+const plat = { best: Infinity, at: 0, start: 0 };
+function resetPlateau() { const it = app.sim ? app.sim.iter : 0; plat.best = Infinity; plat.at = it; plat.start = it; }
 function plateau(sim) {
-  if (sim.iter < 60) { plat.best = Infinity; plat.at = sim.iter; return false; }
+  const run = sim.iter - plat.start;
+  if (run < 60) return false;
   if (sim.lastMove < 0.9 * plat.best) { plat.best = sim.lastMove; plat.at = sim.iter; }
-  return (sim.iter > 600 && sim.iter - plat.at > 150 && sim.lastMove < 1e-4) || sim.iter > 2500;
+  return (run > 600 && sim.iter - plat.at > 150 && sim.lastMove < 1e-4) || run > 2500;
 }
 function loop(t) {
   requestAnimationFrame(loop);
@@ -239,7 +242,7 @@ function loop(t) {
 }
 
 // inflation only runs when asked: the Inflate button, or Deflate and reinflate
-function wake() { app.settled = false; app.stillFrames = 0; }
+function wake() { app.settled = false; app.stillFrames = 0; resetPlateau(); }
 // Show a step's panel. With `from`, only when that step is the one showing (so the panel follows
 // the work without pulling the user away from another step).
 function goStep(step, from) {
@@ -247,8 +250,60 @@ function goStep(step, from) {
   if (from && cur && cur.dataset.tab !== from) return;
   document.querySelectorAll('.tab').forEach((o) => o.setAttribute('aria-selected', String(o.dataset.tab === step)));
   document.querySelectorAll('.tabpanel').forEach((p) => (p.hidden = p.dataset.panel !== step));
+  app.v3.show.skeleton = step === 'rig' && $('rig-show').checked;
+  app.v3.applyVisibility();
 }
 app.goStep = goStep;
+// What the finer pass did and found, shown in the Refine step
+function refineStatus() {
+  const sim = app.sim, el = $('refine-status');
+  if (!el || !sim) return;
+  const d = sim.detail, f = app.face, g = app.digits;
+  const state = !sim.iter ? 'not started: the body inflates first' : d ? (app.running ? `refining · step ${d.iter}` : `done · ${d.iter} steps`) : app.running ? 'inflating the body first' : 'not refined yet';
+  const rows = [['state', state]];
+  if (f) rows.push(['face features used', `${f.eyes} eyes · ${f.ridges} brow lines · ${f.marks} widths (nose, mouth)`]);
+  else rows.push(['face', app.params.face ? 'no face features found' : 'face loops are off (Refine → face loops)']);
+  if (g) rows.push(['fingers and toes', `${g.matched} of ${g.digits} laid on their drawn shapes`]);
+  else rows.push(['fingers and toes', 'no top view, or digits off']);
+  el.innerHTML = rows.map(([k, v]) => `<span>${k}</span><b>${v}</b>`).join('');
+  $('btn-refine').textContent = app.running && d ? 'Stop' : d && !app.running ? 'Refine again' : 'Refine face, hands and feet';
+  $('btn-compare').disabled = !d;
+}
+// Start the finer pass now (after the body has inflated), or inflate first and refine after
+function startRefine() {
+  const sim = app.sim;
+  if (!sim) return;
+  if (app.running && sim.detail) { setRunning(false); return; }
+  showBefore(false);
+  if (!sim.iter || (app.running && !sim.detail)) { app.prm.faceDetail = true; $('faceDetail').checked = true; if (!app.running) setRunning(true); toast('Inflating the body first; refining follows'); return; }
+  if (!app.face && !app.digits) { toast('Nothing to refine: no face features and no top view'); return; }
+  sim.startDetail(app.face, app.digits);
+  app.settled = false;
+  setRunning(true);
+}
+// Before / after the finer pass
+function showBefore(on) {
+  const sim = app.sim, d = sim && sim.detail;
+  app.comparing = !!(on && d);
+  $('btn-compare').setAttribute('aria-pressed', String(app.comparing));
+  $('btn-compare').textContent = app.comparing ? 'Show after' : 'Show before';
+  if (!sim) return;
+  if (app.comparing) app.v3.update(d.hold); else app.v3.update(sim.P, sim.N);
+}
+// Camera onto part of the figure
+function lookAt(what) {
+  const sim = app.sim, v3 = app.v3, M = app.model && app.model.measure;
+  if (!sim || !M) return;
+  const o = v3.orbit, P = sim.P, H = M.H;
+  const around = (pick) => { let x = 0, y = 0, z = 0, n = 0, r = 0; for (let i = 0; i < sim.n; i++) if (pick(i)) { x += P[3 * i]; y += P[3 * i + 1]; z += P[3 * i + 2]; n++; } if (!n) return null; x /= n; y /= n; z /= n; for (let i = 0; i < sim.n; i++) if (pick(i)) r = Math.max(r, Math.hypot(P[3 * i] - x, P[3 * i + 1] - y, P[3 * i + 2] - z)); return { c: [x, y, z], r }; };
+  let t = null, th = 0.45, ph = 1.45;
+  if (what === 'face') { const hh = H - M.W.chin; t = { c: [0, M.W.chin + 0.5 * hh, M.profileAt('trunk', M.W.chin + 0.5 * hh)[2]], r: 0.75 * hh }; th = 0.35; }
+  else if (what === 'hands') { t = around((i) => sim.ext[i] === 1 && P[3 * i] > 0); th = 0.5; ph = 1.0; }
+  else if (what === 'feet') { t = around((i) => sim.ext[i] === 2); th = 0.6; ph = 1.15; }
+  if (!t) { v3.preset('three'); return; }
+  o.target.set(...t.c); o.dist = Math.max(0.12 * H, 3.2 * t.r); o.theta = th; o.phi = ph;
+  v3.needs = true;
+}
 function markSteps() {
   const sim = app.sim;
   const done = {
@@ -260,6 +315,7 @@ function markSteps() {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('done', !!done[t.dataset.tab]));
 }
 function setRunning(on) {
+  if (on && app.comparing) showBefore(false);
   app.running = on;
   if (on) { wake(); if (app.rigPanel) app.rigPanel.onRun(); }
   $('btn-run').textContent = on ? 'Stop' : 'Inflate';
@@ -277,6 +333,7 @@ function statusLine() {
   const state = app.running ? (sim.detail ? 'refining face, hands, feet' : 'inflating') : sim.iter === 0 ? 'press Inflate' : app.settled ? 'settled' : 'stopped';
   setStatus(`<b>${sim.mesh.quads.length / 4}</b> quads · ${cover}${side} · ${state}`, true);
   markSteps();
+  refineStatus();
 }
 function setStatus(s, html) { if (html) $('status').innerHTML = s; else $('status').textContent = s; }
 
@@ -314,13 +371,26 @@ app.erasePart = (p, cx, cy, r, noTwin) => {
   runs = runs.filter((q) => q.length > 1 && polyLength(q) > r * 0.5); // crumbs go
   const twin = !noTwin && p.twin != null ? doc.paths.find((q) => q.id === p.twin) : null;
   doc.paths = doc.paths.filter((q) => q !== p);
+  const made = [];
   for (const q of runs) {
     const np = newPath(simplify(q, r / 12), { closed: false, color: p.color, role: p.role, group: p.group, view: p.view, part: p.part, side: p.side });
     doc.paths.push(np);
+    made.push(np);
   }
-  if (twin) app.erasePart(twin, 2 * doc.views.front.axis - cx, cy, r, true);
+  if (twin) {
+    const tw = app.erasePart(twin, 2 * doc.views.front.axis - cx, cy, r, true);
+    // pieces stay twinned: each with the other side's piece nearest its mirror image
+    const ax = doc.views.front.axis;
+    const cen = (q) => { let x = 0, y = 0; for (const [a, b] of q.pts) { x += a; y += b; } return [x / q.pts.length, y / q.pts.length]; };
+    for (const a of made) {
+      const [x, y] = cen(a);
+      let best = null, bd = Infinity;
+      for (const b of Array.isArray(tw) ? tw : []) { if (b.twin != null) continue; const [u, v] = cen(b); const d = Math.hypot(2 * ax - u - x, v - y); if (d < bd) { bd = d; best = b; } }
+      if (best) { a.twin = best.id; best.twin = a.id; }
+    }
+  }
   if (app.selected === p) app.selected = null;
-  return true;
+  return noTwin ? made : true;
 };
 app.eraseDone = () => { renderSelCard(); scheduleFull(10); };
 app.addPath = (pts, closed, meta = {}) => {
@@ -816,6 +886,9 @@ function bindControls() {
   $('btn-restart').onclick = () => { rebuildModel(); setRunning(true); };
   $('btn-run').onclick = () => { if (!app.running) goStep('inflate', 'draw'); setRunning(!app.running); };
   $('btn-run2').onclick = () => $('btn-run').click();
+  $('btn-refine').onclick = startRefine;
+  $('btn-compare').onclick = () => showBefore(!app.comparing);
+  document.querySelectorAll('[data-look]').forEach((b) => (b.onclick = () => lookAt(b.dataset.look)));
   // steps
   document.querySelectorAll('.tab').forEach((t) => (t.onclick = () => goStep(t.dataset.tab)));
   document.querySelectorAll('[data-goto]').forEach((b) => (b.onclick = () => goStep(b.dataset.goto)));
@@ -950,6 +1023,12 @@ async function boot() {
     try {
       const { doc, meta } = loadProjectSVG(saved);
       applyProjectMeta(meta);
+      // an older copy of a reference figure: load the current drawing instead
+      if (doc.figureKey && PRESETS[doc.figureKey] && (doc.figureVersion || 1) < FIGURE_VERSION) {
+        await loadSample(doc.figureKey);
+        toast('The reference figure has been redrawn since your last session: loaded the new one');
+        return;
+      }
       await setDoc(doc);
       toast('Restored your last session');
       return;

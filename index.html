@@ -133,6 +133,9 @@ details.adv[open] > summary { color: var(--ink); }
 .anat-regions { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; font: 11.5px var(--mono); max-height: 320px; overflow: auto; }
 .anat-regions .low { color: var(--over); }
 .anat-sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.look-row { align-items: center; }
+.look-row .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-right: 2px; }
+.btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
 .next { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .next .btn.primary:only-child { margin-left: auto; }
 .btn.big { padding: 7px 18px; font-weight: 500; }
@@ -242,7 +245,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
             <label class="toggle"><input type="checkbox" data-show3d="cage">cage edges</label>
             <label class="toggle"><input type="checkbox" data-show3d="loops" checked>station loops</label>
             <label class="toggle"><input type="checkbox" data-show3d="drawings">drawings</label>
-            <label class="toggle"><input type="checkbox" id="rig-show" checked>skeleton</label>
+            <label class="toggle"><input type="checkbox" id="rig-show" checked>skeleton (Rig step)</label>
           </div>
         </details>
         <button class="btn primary" id="btn-run" aria-pressed="false">Inflate</button>
@@ -359,8 +362,14 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 
       <div class="tabpanel" data-panel="refine" hidden>
         <div class="group">
+          <h3>Refine</h3>
+          <div class="btn-row"><button class="btn primary big" id="btn-refine">Refine face, hands and feet</button><button class="btn" id="btn-compare" aria-pressed="false" title="Show the body as it was before refining (press again to go back)">Show before</button></div>
+          <div class="stats" id="refine-status"></div>
+          <div class="btn-row look-row"><span class="label">Look at</span><button class="btn" data-look="face">Face</button><button class="btn" data-look="hands">Hands</button><button class="btn" data-look="feet">Feet</button><button class="btn" data-look="body">Body</button></div>
+        </div>
+        <div class="group">
           <h3>Face, hands and feet</h3>
-          <label class="toggle"><input type="checkbox" id="faceDetail" checked>work them in finer steps after the body settles</label>
+          <label class="toggle"><input type="checkbox" id="faceDetail" checked>refine automatically when the body settles</label>
           <label class="toggle"><input type="checkbox" id="face" checked>face loops: round the face, the eyes and the mouth</label>
           <label class="toggle"><input type="checkbox" id="faceRefine" checked>twice as many quads inside the face loop</label>
           <p class="hint">The face takes its shape from the Features layer: eyes, brows, nose base and mouth drawn in the front view, matched by height to the same features in the side view. Each finger and toe follows its own shape in the top view.</p>

@@ -86,7 +86,7 @@ export function initRigPanel(app, { $, toast, applyShading }) {
   };
   $('btn-pose-reset').onclick = resetPose;
   $('pose-strain').onchange = () => { if ($('pose-strain').checked) applyPose(); else applyShading(); };
-  $('rig-show').onchange = (e) => { app.v3.show.skeleton = e.target.checked; app.v3.applyVisibility(); };
+  $('rig-show').onchange = (e) => { const inRig = document.querySelector('.tab[aria-selected="true"]').dataset.tab === 'rig'; app.v3.show.skeleton = e.target.checked && inRig; app.v3.applyVisibility(); };
   $('btn-rig-fit').onclick = () => { if (fit()) toast('Skeleton fitted to the figure'); else toast('Inflate the figure first'); };
   $('btn-rig-base').onclick = () => { st.rig = baseRig(); st.fit = null; renderMap(); fit(); status(); };
   $('btn-rig-load').onclick = () => $('rig-file').click();

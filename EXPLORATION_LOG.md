@@ -152,3 +152,25 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
   - Before the loops merge: 41%. After: 100% by name, but the torso is still 0.15–0.4× density while the face and hands are 3–25×. The checklist only tests that names exist, not loop quality.
 - **Settling:** with the extra loops, the body kept a spread-out shimmer of about 3e-5 H per step above the 2.5e-5 stop line and never stopped. It now also stops when movement has not improved for 150 steps after 600 (cap 2500). Full flow in the test browser: 58 s.
 - The agent committed the sub-agents' worktree folders as embedded repositories by mistake, then untracked them and excluded that folder locally.
+
+## 2026-09-29 — bug pass; Refine step made real; stale saved drawings
+
+- **The user saw the old hands and feet in the published app.** The browser restores the last session from local storage, and that session held the old drawing, so new reference drawings never showed.
+  - Reference figures now carry a version. A saved copy of an older version is replaced by the current drawing on load, with a notice.
+- **"Refine is not working at all".** The pass ran (automatically, after the body), but the step had no button, no progress and no way to see its effect, and the skeleton overlay covered the result.
+  - The step now has a Refine button: it inflates first if needed, and can run again.
+  - A live status reports the features it used and the digits matched.
+  - Before/after toggle, using the body-pass positions kept by the detail pass.
+  - Camera shortcuts to the face, hands and feet.
+  - The skeleton shows only in the Rig step.
+- **Review findings, all fixed and checked:**
+  - The knee lenses cut the same quads as the buttock-fold lens when a leg had no spare rings (open edges with rings = 0 and joint rings off). The knee patterns now need a ring of their own. Every setting combination builds closed.
+  - Split sheet: the eraser and selection picked strokes from the other half. Front features are now pickable only from the front half, back features only from the back.
+  - A feature across the centre line could vanish by float rounding (the 1-year belt line). Visibility now uses the bounding box.
+  - A twin already erased with its partner was erased again from a stale list.
+  - The plateau stop kept its memory across runs and capped absolute steps. It now resets on every wake and counts from there.
+  - Landmarks and guide handles were mirrored in the split sheet. Page and stored coordinates are now separate; a pen stroke keeps the side it started on.
+  - With fewer than 3 finger rings, the lead ring (the detail pass's first loop) was dropped.
+  - Erased pieces lost their twin links; they are now paired with the mirror piece nearest them.
+  - The deltoid ring's lean could cross the next ring; it is now limited by the gaps.
+  - The renamed head rings (nostrils, forehead) had no anatomy names.

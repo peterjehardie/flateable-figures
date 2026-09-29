@@ -271,7 +271,7 @@ export function exportSVG(doc, extraMeta = {}) {
   const lines = [];
   lines.push(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="${vb.join(' ')}" width="${vb[2]}" height="${vb[3]}">`);
   const meta = {
-    version: 1, splitX: doc.splitX, splitY: doc.splitY, figureKey: doc.figureKey, views: doc.views, landmarks: doc.landmarks, groups: doc.groups,
+    version: 1, splitX: doc.splitX, splitY: doc.splitY, figureKey: doc.figureKey, figureVersion: doc.figureVersion, views: doc.views, landmarks: doc.landmarks, groups: doc.groups,
     paint: doc.paint, sectionSeed: doc.sectionSeed, sectionOff: doc.sectionOff, stations: doc.stations, stationsAuto: doc.stationsAuto, heightM: doc.heightM, canon: doc.canon, ...extraMeta,
   };
   lines.push(`<metadata id="ff-project">${escapeXML(JSON.stringify(meta))}</metadata>`);
@@ -307,7 +307,7 @@ export function loadProjectSVG(text) {
   const hasRoles = paths.some((p) => p.role);
   for (const p of paths) if (p.role) p._roleFromFile = true;
   if (meta) {
-    for (const k of ['splitX', 'splitY', 'figureKey', 'views', 'landmarks', 'groups', 'paint', 'sectionSeed', 'sectionOff', 'stations', 'stationsAuto', 'heightM', 'canon']) if (meta[k] !== undefined) doc[k] = meta[k];
+    for (const k of ['splitX', 'splitY', 'figureKey', 'figureVersion', 'views', 'landmarks', 'groups', 'paint', 'sectionSeed', 'sectionOff', 'stations', 'stationsAuto', 'heightM', 'canon']) if (meta[k] !== undefined) doc[k] = meta[k];
   }
   if (hasRoles) {
     for (const p of paths) if (!p.role) p.role = 'line';

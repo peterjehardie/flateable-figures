@@ -48,7 +48,10 @@ export class View2D {
 
   toScreen(x, y) { return [(x - this.view.ox) * this.view.s, (y - this.view.oy) * this.view.s]; }
   toDoc(sx, sy) { return [sx / this.view.s + this.view.ox, sy / this.view.s + this.view.oy]; }
-  evDoc(e) { const r = this.canvas.getBoundingClientRect(); return this.unmirror(...this.toDoc(e.clientX - r.left, e.clientY - r.top)); }
+  // pointer on the page as displayed (landmarks, guide handles, the cursor) ...
+  rawDoc(e) { const r = this.canvas.getBoundingClientRect(); return this.toDoc(e.clientX - r.left, e.clientY - r.top); }
+  // ... and where strokes are stored (the back half of the split sheet is mirrored)
+  evDoc(e) { return this.unmirror(...this.rawDoc(e)); }
   // Front panel modes. 'split': the page right of the centre line is the front of the body, the
   // page left is the back seen from behind (both show the figure's own left side, +x; the outline
   // is symmetric). 'front' and 'back': the whole figure from one side, for features that differ
@@ -72,13 +75,18 @@ export class View2D {
     if (m === 'front') return { show: true, mir: false, faint: far };
     if (m === 'back') return { show: true, mir: true, faint: feat && !far };
     if (!feat) return { show: true, mir: false, faint: false };
-    let mx = 0;
-    for (const q of p.pts) mx += q[0];
-    if (mx / p.pts.length < this.app.doc.views.front.axis) return { show: false };
+    // shown if any of it is on the figure's +x side (strokes across the centre line included)
+    const ax = this.app.doc.views.front.axis;
+    if (bboxOf(p.pts).x1 <= ax + 1e-6 * (Math.abs(ax) + 1)) return { show: false };
     return { show: true, mir: far, faint: false };
   }
   onFace(p) { const l = this.look(p); return l.show && !l.faint; }
-  pickable(p) { return View2D.layerOf(p) === (this.app.layer || 'line') && this.onFace(p) && !(p.role === 'axis' || p.role === 'guide'); }
+  pickable(p) {
+    if (View2D.layerOf(p) !== (this.app.layer || 'line') || !this.onFace(p) || p.role === 'axis' || p.role === 'guide') return false;
+    // split sheet: front features only from the front half, back features only from the back half
+    if (this.mode() === 'split' && p.view === 'front' && p.role === 'feature') return (p.side === 'far') === !!this.ptrBack;
+    return true;
+  }
   viewAt(x, y) { return viewAtPoint(this.app.doc, x, y); }
 
   // ---------- hit testing on draggable guides ----------
@@ -144,7 +152,7 @@ export class View2D {
   eraseAt(x, y) {
     const r = ERASE_PX / this.view.s;
     for (const p of [...this.app.doc.paths]) {
-      if (!this.pickable(p)) continue;
+      if (!this.app.doc.paths.includes(p) || !this.pickable(p)) continue; // (a twin erased with its partner is gone)
       const bb = bboxOf(p.pts);
       if (x < bb.x0 - r || x > bb.x1 + r || y < bb.y0 - r || y > bb.y1 + r) continue;
       if (distToPolyline(x, y, p.pts, p.closed) > r) continue;
@@ -181,21 +189,24 @@ export class View2D {
       c.setPointerCapture(e.pointerId);
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (pointers.size === 2) { this.drag = { kind: 'pinch', d: this.pinchDist(pointers) }; return; }
-      const [x, y] = this.evDoc(e);
+      const [rx, ry] = this.rawDoc(e);
+      this.ptrBack = this.backAt(rx, ry);
+      const [x, y] = this.unmirror(rx, ry);
       if (e.button === 1 || e.button === 2 || this.spaceDown) { this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: this.view.ox, oy: this.view.oy }; return; }
-      if (this.tool === 'pen') { const r = c.getBoundingClientRect(); const [dx, dy] = this.toDoc(e.clientX - r.left, e.clientY - r.top); this.drag = { kind: 'pen', pts: [[x, y]], back: this.backAt(dx, dy) }; return; }
+      // a stroke keeps the side it started on (one begun on the back half stays on the back)
+      if (this.tool === 'pen') { this.drag = { kind: 'pen', pts: [[x, y]], back: this.ptrBack }; return; }
       if (this.tool === 'erase') { this.drag = { kind: 'erase', any: false }; this.eraseAt(x, y); return; }
-      if (this.tool === 'fill') { this.app.fillAt(this.viewAt(x, y), [x, y]); return; }
+      if (this.tool === 'fill') { this.app.fillAt(this.viewAt(rx, ry), [rx, ry]); return; }
       if (this.tool === 'landmark') {
-        const hl = this.hitLandmark(x, y);
+        const hl = this.hitLandmark(rx, ry);
         if (hl) { this.drag = { kind: 'lm', ...hl }; this.app.selectLandmark(hl.l); return; }
-        this.app.placeLandmark(this.viewAt(x, y), [x, y]);
+        this.app.placeLandmark(this.viewAt(rx, ry), [rx, ry]);
         return;
       }
       // select tool
-      const hl = this.hitLandmark(x, y);
+      const hl = this.hitLandmark(rx, ry);
       if (hl) { this.drag = { kind: 'lm', ...hl }; this.app.selectLandmark(hl.l); return; }
-      const h = this.hitHandle(x, y);
+      const h = this.hitHandle(rx, ry);
       if (h) { this.drag = { kind: 'handle', h }; return; }
       const p = this.hitPath(x, y);
       this.app.selectPath(p);
@@ -203,9 +214,12 @@ export class View2D {
     });
     c.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      const [x, y] = this.evDoc(e);
-      { const r = c.getBoundingClientRect(); this.mouseDoc = this.toDoc(e.clientX - r.left, e.clientY - r.top); if (this.tool === 'erase') this.dirty = true; }
-      this.cursor = { x, y, view: this.viewAt(x, y) };
+      const [rx, ry] = this.rawDoc(e);
+      this.ptrBack = this.backAt(rx, ry);
+      const [x, y] = this.unmirror(rx, ry);
+      this.mouseDoc = [rx, ry];
+      if (this.tool === 'erase') this.dirty = true;
+      this.cursor = { x: rx, y: ry, view: this.viewAt(rx, ry) };
       this.app.onCursor(this.cursor);
       const d = this.drag;
       if (d && d.kind === 'pinch' && pointers.size === 2) {
@@ -223,15 +237,16 @@ export class View2D {
       } else if (d && d.kind === 'erase') {
         this.eraseAt(x, y);
       } else if (d && d.kind === 'pen') {
+        const [px, py] = d.back ? [2 * this.app.doc.views.front.axis - rx, ry] : [rx, ry];
         const last = d.pts[d.pts.length - 1];
-        if (Math.hypot(x - last[0], y - last[1]) > 1.5 / this.view.s) d.pts.push([x, y]);
+        if (Math.hypot(px - last[0], py - last[1]) > 1.5 / this.view.s) d.pts.push([px, py]);
       } else if (d && d.kind === 'handle') {
-        this.app.dragHandle(d.h, x, y);
+        this.app.dragHandle(d.h, rx, ry);
       } else if (d && d.kind === 'lm') {
-        d.l[d.k] = [x, y];
+        d.l[d.k] = [rx, ry];
         this.app.landmarksChanged();
       } else {
-        const h = this.tool === 'select' ? this.hitHandle(x, y) : null;
+        const h = this.tool === 'select' ? this.hitHandle(rx, ry) : null;
         this.hover = h || (this.tool !== 'pen' ? this.hitPath(x, y) : null);
         c.style.cursor = this.tool === 'pen' || this.tool === 'fill' ? 'crosshair' : h ? (h.x !== undefined && h.y === undefined ? 'ew-resize' : 'ns-resize') : this.hover ? 'pointer' : this.tool === 'landmark' ? 'copy' : 'default';
       }
