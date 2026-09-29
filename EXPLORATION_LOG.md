@@ -182,3 +182,9 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 - Known limit: diagonal strokes across a grid of rings become staircases. Pulling vertices cannot fix this; it needs edges re-routed or faces split along the stroke.
 - Tracer: pale coloured pixels now count as colour (chroma 0.14); short spurs are pruned and nearby chain ends joined.
 - Anatomy colours: now one flat colour per face with no blending, left and right mirrored.
+
+## Styling switched to Claude look, three themes
+- Dropped: the teal accent and IBM Plex type (the agent's own earlier choice, not the user's).
+- Now: Claude colours (ivory/slate surfaces, clay accent), a serif brand heading, and a Light / Mid / Dark switch. Mid's grays come from Blender's default theme source file (userdef_default_theme.c): viewport and panels #3d3d3d, editors #303030, widgets #545454, text #e6e6e6.
+- The typefaces are free stand-ins (Source Serif 4, system sans, JetBrains Mono); Anthropic's own typefaces are not freely loadable.
+- Fixed a phone-width overflow that was already there: the outer grid column sized to its widest child.

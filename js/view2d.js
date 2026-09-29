@@ -314,7 +314,7 @@ export class View2D {
       ctx.drawImage(app.maskImgs.section, m.x0, m.y0, m.W * m.cell, m.H * m.cell);
       ctx.imageSmoothingEnabled = true;
       ctx.fillStyle = css.accent;
-      ctx.font = `${10.5 * px}px "IBM Plex Mono", ui-monospace, monospace`;
+      ctx.font = `${10.5 * px}px "JetBrains Mono", ui-monospace, monospace`;
       ctx.fillText('arm section', m.cx + m.hw + 4 * px, m.cy + 3 * px);
     }
     // head-unit guide
@@ -367,7 +367,7 @@ export class View2D {
     }
     if (app.frame) {
       ctx.fillStyle = css.accent;
-      ctx.font = `600 ${11 * px}px "IBM Plex Mono", ui-monospace, monospace`;
+      ctx.font = `600 ${11 * px}px "JetBrains Mono", ui-monospace, monospace`;
       const ax = doc.views.front.axis, top = doc.views.front.top, m = this.mode();
       if (m === 'split') {
         ctx.textAlign = 'right'; ctx.fillText('BACK (seen from behind)  ', ax, top - 14 * px);
@@ -400,7 +400,7 @@ export class View2D {
     const { app } = this, doc = app.doc, fr = app.frame, css = app.css;
     const n = doc.canon;
     const b = doc.bounds;
-    ctx.font = `${10 * px}px "IBM Plex Mono", ui-monospace, monospace`;
+    ctx.font = `${10 * px}px "JetBrains Mono", ui-monospace, monospace`;
     for (const view of ['front', 'side']) {
       const [x0, x1] = view === 'front' ? [b.x0 - 24, doc.splitX - 10] : [doc.splitX + 10, b.x1 + 24];
       for (let k = 0; k <= Math.ceil(n); k++) {
@@ -430,7 +430,7 @@ export class View2D {
   drawGuides(ctx, px) {
     const { app } = this, css = app.css;
     const hov = this.hover && this.hover.kind ? this.hover : null;
-    ctx.font = `${10.5 * px}px "IBM Plex Mono", ui-monospace, monospace`;
+    ctx.font = `${10.5 * px}px "JetBrains Mono", ui-monospace, monospace`;
     for (const h of this.handles()) {
       const active = hov && hov.kind === h.kind && hov.key === h.key && hov.view === h.view && hov.sign === h.sign;
       ctx.lineWidth = (active ? 2 : 1) * px;
@@ -574,7 +574,7 @@ export class View2D {
 
   drawLandmarks(ctx, px) {
     const { app } = this, css = app.css, fr = app.frame;
-    ctx.font = `${10.5 * px}px "IBM Plex Mono", ui-monospace, monospace`;
+    ctx.font = `${10.5 * px}px "JetBrains Mono", ui-monospace, monospace`;
     for (const l of app.doc.landmarks) {
       const sel = l === app.selectedLandmark;
       if (l.front && l.side) {

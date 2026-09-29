@@ -6,40 +6,50 @@
 <title>Flateable Figures</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
 <style>
 :root {
-  --bg: #e9ecef; --panel: #fbfbfa; --panel-2: #f2f3f4; --ink: #1c2230; --muted: #5b6474; --line: #d3d8df;
-  --accent: #0e7d89; --accent-soft: #d6ecee; --accent-ink: #ffffff; --select: #f0a020; --mark: #b87400;
-  --paper: #f7f6f2; --viewport: #e1e4e8; --grid-a: #9aa1ab; --grid-b: #c9ced6; --mesh-line: #3a4252;
+  color-scheme: light;
+  --bg: #f0eee6; --panel: #faf9f5; --panel-2: #f3f1ea; --ink: #141413; --muted: #5e5d59; --line: #dedbd0;
+  --accent: #c96442; --accent-soft: #f5e1d7; --accent-ink: #ffffff; --select: #d4a027; --mark: #9a6b10;
+  --paper: #fdfcf9; --viewport: #e8e6dc; --grid-a: #a8a498; --grid-b: #d3d0c4; --mesh-line: #3d3d3a; --loop: #3f7cb8;
   --over: #d9463b; --under: #2f6fe0;
-  --font: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --r: 6px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --r: 8px;
 }
+/* dark: Claude's dark surfaces */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not([data-theme="mid"]) {
     color-scheme: dark;
-    --bg: #111419; --panel: #181c22; --panel-2: #1f242b; --ink: #e5e8ec; --muted: #98a1ae; --line: #2c333d;
-    --accent: #3cb7c3; --accent-soft: #173a3f; --accent-ink: #0b1215; --select: #f0a020; --mark: #e4a52a;
-    --paper: #1b1f25; --viewport: #15181d; --grid-a: #3a414b; --grid-b: #272c34; --mesh-line: #b9c1cd;
+    --bg: #1f1e1d; --panel: #262624; --panel-2: #30302e; --ink: #f5f4ee; --muted: #a6a39a; --line: #3e3e3a;
+    --accent: #d97757; --accent-soft: #4a2c20; --accent-ink: #1f1e1d; --select: #e0a100; --mark: #e4a52a;
+    --paper: #2b2a27; --viewport: #1a1918; --grid-a: #4a4945; --grid-b: #33322f; --mesh-line: #c8c5bb; --loop: #7fb0dd;
   }
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111419; --panel: #181c22; --panel-2: #1f242b; --ink: #e5e8ec; --muted: #98a1ae; --line: #2c333d;
-  --accent: #3cb7c3; --accent-soft: #173a3f; --accent-ink: #0b1215; --select: #f0a020; --mark: #e4a52a;
-  --paper: #1b1f25; --viewport: #15181d; --grid-a: #3a414b; --grid-b: #272c34; --mesh-line: #b9c1cd;
+  --bg: #1f1e1d; --panel: #262624; --panel-2: #30302e; --ink: #f5f4ee; --muted: #a6a39a; --line: #3e3e3a;
+  --accent: #d97757; --accent-soft: #4a2c20; --accent-ink: #1f1e1d; --select: #e0a100; --mark: #e4a52a;
+  --paper: #2b2a27; --viewport: #1a1918; --grid-a: #4a4945; --grid-b: #33322f; --mesh-line: #c8c5bb; --loop: #7fb0dd;
+}
+/* mid: grays from Blender's default theme (viewport and panels #3d3d3d, editors #303030, widgets #545454, text #e6e6e6) */
+:root[data-theme="mid"] {
+  color-scheme: dark;
+  --bg: #303030; --panel: #3d3d3d; --panel-2: #545454; --ink: #e6e6e6; --muted: #b4b4b4; --line: #282828;
+  --accent: #e08a68; --accent-soft: #5a4238; --accent-ink: #1d1d1d; --select: #ff9900; --mark: #ffb340;
+  --paper: #3d3d3d; --viewport: #3d3d3d; --grid-a: #6a6a6a; --grid-b: #4a4a4a; --mesh-line: #d9d9d9; --loop: #8ab4e6;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font); }
 button, input, select { font: inherit; color: inherit; }
-.app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+.app { height: 100%; display: grid; grid-template-rows: auto 1fr; grid-template-columns: minmax(0, 1fr); }
 header.bar { display: flex; align-items: center; gap: 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: var(--panel); flex-wrap: wrap; }
 .brand { display: flex; align-items: baseline; gap: 10px; margin-right: 8px; }
-.brand h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0.01em; }
+.brand h1 { font: 600 17px/1.2 var(--serif); margin: 0; letter-spacing: 0.01em; }
 .brand span { color: var(--muted); font-size: 12px; }
 .bar .spacer { flex: 1; }
 .status { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -162,7 +172,9 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
 }
 @media (max-width: 720px) {
   .app { height: auto; }
-  .work { grid-template-columns: 1fr; grid-template-rows: none; }
+  .work { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; }
+  .steps { max-width: 100%; overflow-x: auto; }
+  .step { padding: 5px 8px; }
   .pane { height: 62vh; border-right: 0; border-bottom: 1px solid var(--line); }
   .pane-2d, .pane-3d, aside.panel { grid-column: 1; grid-row: auto; }
   aside.panel { overflow: visible; }
@@ -183,6 +195,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
       <button class="tab step" role="tab" data-tab="rig" aria-selected="false"><i>4</i>Rig &amp; export</button>
     </nav>
     <div class="spacer"></div>
+    <div class="seg theme-seg" id="theme" role="group" aria-label="Theme"><button data-theme-set="light" aria-pressed="false" title="Light">Light</button><button data-theme-set="mid" aria-pressed="false" title="Mid gray, as Blender's default">Mid</button><button data-theme-set="dark" aria-pressed="false" title="Dark">Dark</button></div>
     <div class="status" id="status">loading…</div>
     <button class="btn" id="btn-save">Save project</button>
     <button class="btn" id="btn-export">Export</button>

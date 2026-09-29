@@ -242,7 +242,7 @@ export class View3D {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', this.posAttr);
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
-    this.loopsObj = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0x0f9aa8, depthTest: true }));
+    this.loopsObj = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: this.loopColor || 0x3f7cb8, depthTest: true }));
     this.loopsObj.renderOrder = 2;
     this.group.add(this.loopsObj);
     this.applyVisibility();
@@ -300,7 +300,7 @@ export class View3D {
     this.needs = true;
   }
 
-  setAccent(hex) { if (this.loopsObj) this.loopsObj.material.color.set(hex); if (this.cursorPlane) this.cursorPlane.material.color.set(hex); }
+  setAccent(hex, loop) { this.loopColor = loop || hex; if (this.loopsObj) this.loopsObj.material.color.set(this.loopColor); if (this.cursorPlane) this.cursorPlane.material.color.set(hex); }
 
   update(P, Nn) {
     if (!this.posAttr) return;

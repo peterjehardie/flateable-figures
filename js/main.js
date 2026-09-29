@@ -35,11 +35,15 @@ const app = {
 window.__app = app;
 
 // ---------------- theme ----------------
+function markTheme() {
+  const t = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.themeSet === t)));
+}
 function readCSS() {
   const cs = getComputedStyle(document.documentElement);
   const g = (n) => cs.getPropertyValue(n).trim();
-  app.css = { paper: g('--paper'), ink: g('--ink'), muted: g('--muted'), accent: g('--accent'), select: g('--select'), mark: g('--mark'), meshLine: g('--mesh-line'), viewport: g('--viewport'), gridA: g('--grid-a'), gridB: g('--grid-b'), line: g('--line') };
-  if (app.v3) { app.v3.setTheme(app.css.viewport, app.css.gridA, app.css.gridB); app.v3.setAccent(app.css.accent); }
+  app.css = { paper: g('--paper'), ink: g('--ink'), muted: g('--muted'), accent: g('--accent'), select: g('--select'), mark: g('--mark'), meshLine: g('--mesh-line'), viewport: g('--viewport'), gridA: g('--grid-a'), gridB: g('--grid-b'), line: g('--line'), loop: g('--loop') };
+  if (app.v3) { app.v3.setTheme(app.css.viewport, app.css.gridA, app.css.gridB); app.v3.setAccent(app.css.accent, app.css.loop); }
   if (app.masks) makeMaskImages();
   if (app.v2) app.v2.dirty = true;
   if (app.sim) applyShading();
@@ -1057,8 +1061,17 @@ function bindControls() {
 async function boot() {
   app.v2 = new View2D($('c2d'), app);
   app.v3 = new View3D($('c3d'), app);
+  let theme = null;
+  try { theme = localStorage.getItem('ff-theme'); } catch (e) { /* storage blocked: follow the system */ }
+  if (theme === 'light' || theme === 'mid' || theme === 'dark') document.documentElement.dataset.theme = theme;
   readCSS();
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readCSS);
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { markTheme(); readCSS(); });
+  markTheme();
+  document.querySelectorAll('[data-theme-set]').forEach((b) => b.addEventListener('click', () => {
+    document.documentElement.dataset.theme = b.dataset.themeSet;
+    try { localStorage.setItem('ff-theme', b.dataset.themeSet); } catch (e) { /* not kept */ }
+    markTheme();
+  }));
   new MutationObserver(readCSS).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   bindControls();
   app.rigPanel = initRigPanel(app, { $, toast, applyShading });
