@@ -35,7 +35,7 @@ export class Balloon {
         if (c === 0 || this.cls[v] === -1) this.cls[v] = c;
       }
     }
-    // hands and feet (1 = hand, 2 = foot): also held by the top view when there is one
+    // hands and feet (1 = hand, 2 = foot); the feet are also held by the top view when there is one
     this.ext = new Int8Array(n);
     for (let f = 0; f < nF; f++) {
       const part = mesh.fpart[f];
@@ -54,7 +54,7 @@ export class Balloon {
 
   // Detail pass: only the head, hands and feet move (the rest is held), in smaller steps. The face
   // is pulled onto its relief (depth over the rounded head) and its loops onto the drawn shapes;
-  // fingers and toes onto their own shapes in the top view.
+  // fingers and toes onto their own shapes (fingers in the front view, toes in the top view).
   startDetail(face, digits) {
     const P = this.P, n = this.n;
     const inR = new Uint8Array(n), isFace = new Uint8Array(n);
@@ -283,9 +283,9 @@ export class Balloon {
       const fr = smp.front(x, y);
       if (fr.d > 0) { x -= fr.d * fr.gx; y -= fr.d * fr.gy; }
       // side outline holds (z, y); arms use their own cross-section
-      const topHeld = this.ext[i] && M.hasTop;
+      const topHeld = this.ext[i] === 2 && M.hasTop;
       if (topHeld) {
-        // plan view of hands and feet holds (x, z)
+        // plan view of the feet holds (x, z)
         const t = smp.top(x, z);
         if (t.d > 0) { x -= t.d * t.gx; z -= t.d * t.gz; }
       }
@@ -293,7 +293,10 @@ export class Balloon {
         const sign = c === 1 ? 1 : -1;
         const a = M.armAt(sign, x);
         if (this.ext[i] === 1) {
-          // hand depth comes from the top view when there is one; never from the arm's cross-section
+          // the hand (palm forward): the front view holds its outline; its thickness is its default
+          // profile, across the palm and fingers (the thumb, above the palm, is left to its shape)
+          const h = M.arm(sign, x);
+          if (Math.abs(y - h.cy) < h.ry) { if (z > h.cz + h.rz) z = h.cz + h.rz; else if (z < h.cz - h.rz) z = h.cz - h.rz; }
         } else if (sec) {
           const [zlo, zhi] = M.armDepthLimits(sign, a, y);
           if (z < zlo) z = zlo; else if (z > zhi) z = zhi;

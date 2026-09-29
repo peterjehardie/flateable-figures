@@ -59,11 +59,9 @@ function finish(fr, R, offsetPx) {
   const dOut = edt(R, W, H); // for outside pixels: distance to region
   const dIn = edt(notR, W, H); // for inside pixels: distance to outside
   const sd = new Float32Array(W * H);
-  let area = 0;
   for (let i = 0; i < W * H; i++) {
     const s = R[i] ? -dIn[i] + 0.5 : dOut[i] - 0.5;
     sd[i] = (s + offsetPx) * fr.cell;
-    if (sd[i] < 0) area++;
   }
   // light blur so a nearly straight outline doesn't read as pixel stair-steps (which the
   // balloon would copy as ripples); distances near the edge barely change
@@ -78,9 +76,14 @@ function finish(fr, R, offsetPx) {
       sd[i] = (tmp[y > 0 ? i - W : i] + 2 * tmp[i] + tmp[y < H - 1 ? i + W : i]) / 4;
     }
   }
-  area = 0;
+  return withGradient(fr, sd);
+}
+
+// area and unit gradient field (central differences), sampled alongside the distance
+function withGradient(fr, sd) {
+  const { W, H } = fr;
+  let area = 0;
   for (let i = 0; i < W * H; i++) if (sd[i] < 0) area++;
-  // unit gradient field (central differences), sampled alongside the distance
   const gx = new Float32Array(W * H), gy = new Float32Array(W * H);
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const i = y * W + x;
@@ -98,7 +101,12 @@ function finish(fr, R, offsetPx) {
 export function buildHullMask(paths, region, { cell, gap, ends = false }) {
   const lw = ends ? 2 : Math.max(1.5, (2 * gap) / cell);
   const fr = frameFor(region, cell, gap + cell * 6);
-  const { W, H } = fr;
+  return finish(fr, hullRegion(paths, fr, lw, ends, gap), lw / 2);
+}
+
+// The inside of the outline on frame fr (strokes of width lw pixels included), as 0/1 per pixel.
+function hullRegion(paths, fr, lw, ends, gap) {
+  const { W, H, cell } = fr;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   ctx.clearRect(0, 0, W, H);
@@ -143,7 +151,54 @@ export function buildHullMask(paths, region, { cell, gap, ends = false }) {
   }
   const R = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) R[i] = out[i] ? 0 : 1;
-  return finish(fr, R, lw / 2);
+  return R;
+}
+
+// Front view: thick strokes close the gaps of a sketchy body outline, but they would also seal
+// the narrow gaps between the fingers of a hand drawn in the outline (palm forward, at the ends of
+// the arms). Both are made: thick strokes, and thin ones joined only at their ends (as the top
+// view). Where only the thick strokes close the outline, out toward the ends of the figure's width
+// (beyond `reach` of its half width from the middle: the hands, far from the crotch and armpits),
+// the gaps are drawn gaps: there, and a stroke width round them, the thin-stroke mask is used.
+// Anywhere else (and wherever the thin strokes leak) the mask is the thick-stroke one, unchanged.
+export function buildHullMaskOpenHands(paths, region, { cell, gap, reach = 0.6 }) {
+  const lw = Math.max(1.5, (2 * gap) / cell);
+  const fr = frameFor(region, cell, gap + cell * 6);
+  const thick = finish(fr, hullRegion(paths, fr, lw, false, gap), lw / 2);
+  const thin = finish(fr, hullRegion(paths, fr, 2, true, gap), 1);
+  const { W, H } = fr;
+  const cx = (region.x0 + region.x1) / 2, half = (region.x1 - region.x0) / 2;
+  // closed by thick strokes only: its connected pieces
+  const lab = new Int32Array(W * H).fill(-1), stack = new Int32Array(W * H);
+  const keep = new Uint8Array(W * H);
+  let any = false;
+  for (let s = 0; s < W * H; s++) {
+    if (lab[s] !== -1 || !(thick.sd[s] < 0 && thin.sd[s] > 0.5 * cell)) continue;
+    let sp = 0, cnt = 0, sx = 0;
+    const got = [];
+    lab[s] = s; stack[sp++] = s;
+    while (sp) {
+      const i = stack[--sp];
+      got.push(i); cnt++; sx += i % W;
+      const x = i % W;
+      for (const j of [x > 0 ? i - 1 : -1, x < W - 1 ? i + 1 : -1, i - W, i + W]) {
+        if (j < 0 || j >= W * H || lab[j] !== -1 || !(thick.sd[j] < 0 && thin.sd[j] > 0.5 * cell)) continue;
+        lab[j] = s; stack[sp++] = j;
+      }
+    }
+    // a gap between fingers is small and out at the ends; a leak of the thin outline is not
+    const xm = fr.x0 + (sx / cnt + 0.5) * cell;
+    if (Math.abs(xm - cx) > reach * half && cnt < 0.01 * thick.area) { for (const i of got) keep[i] = 1; any = true; }
+  }
+  if (!any) return thick;
+  // blend: the thin mask within a stroke width of the opened gaps, easing to the thick one at two
+  const dist = edt(keep, W, H), r1 = lw, r2 = 2 * lw;
+  const sd = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const w = dist[i] <= r1 ? 1 : dist[i] >= r2 ? 0 : (r2 - dist[i]) / (r2 - r1);
+    sd[i] = w * thin.sd[i] + (1 - w) * thick.sd[i];
+  }
+  return withGradient(fr, sd);
 }
 
 // For each end of an open stroke: the nearest point on any line within `reach` (on its own stroke,

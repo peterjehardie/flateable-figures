@@ -18,8 +18,8 @@ export function computeFit(sim, frame, masks) {
     }
     // each quad as its own path: overlapping front/back faces must not cancel out
     for (let f = 0; f < Q.length; f += 4) {
-      // the top view only draws hands and feet, so only they are compared there
-      if (view === 'top' && !(sim.ext[Q[f]] && sim.ext[Q[f + 1]] && sim.ext[Q[f + 2]] && sim.ext[Q[f + 3]])) continue;
+      // the top view only draws the feet, so only they are compared there
+      if (view === 'top' && !(sim.ext[Q[f]] === 2 && sim.ext[Q[f + 1]] === 2 && sim.ext[Q[f + 2]] === 2 && sim.ext[Q[f + 3]] === 2)) continue;
       ctx.beginPath();
       ctx.moveTo(px[2 * Q[f]], px[2 * Q[f] + 1]);
       ctx.lineTo(px[2 * Q[f + 1]], px[2 * Q[f + 1] + 1]);

@@ -104,7 +104,7 @@ export function tagAnatomy(model, sim) {
       const hand = part === 7 || part === 10, fore = part === 6 || part === 9;
       const ax = Math.abs(x), a = M.armAt(s, ax);
       const v = y - a.cy, w = z - a.cz;
-      if (hand) return v > 0 ? `back of hand ${S}` : `palm ${S}`;
+      if (hand) return z < M.arm(s, ax).cz ? `back of hand ${S}` : `palm ${S}`; // palm forward
       const nearElbow = Math.abs(ax - W.elbowX) < 0.035 * H;
       if (nearElbow) return w > Math.abs(v) * 0.5 ? `elbow crease ${S}` : w < -Math.abs(v) * 0.5 ? `elbow ${S}` : `elbow side ${S}`;
       if (fore) return W.wristX - ax < 0.025 * H ? `wrist ${S}` : v > 0 ? `forearm top ${S}` : `forearm under ${S}`;

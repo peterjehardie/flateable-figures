@@ -1,7 +1,10 @@
-// Fingers and toes for the detail pass: each digit of the mesh is matched to its own shape in the
-// top view and laid out along it (length, direction, width at each point), with a rounded
-// thickness from the front view (fingers) or the side view (toes). During the body pass the digits
-// are built from generic proportions and only fenced in by the top view, so they stay slabs.
+// Fingers and toes for the detail pass: each digit of the mesh is matched to its own shape in a
+// drawing and laid out along it (length, direction, width at each point), with a rounded
+// thickness across that drawing's plane. Fingers: the hands are palm forward, drawn in the front
+// view (x, y); their part of the front outline is the stretch beyond the wrists, and the thickness
+// (z) is the hand's default profile. Toes: the feet in the top view (x, z), resting on the floor
+// with the side view's height. During the body pass the digits are built from generic proportions
+// and only fenced in by those drawings, so they stay slabs.
 // A hand or foot drawn in one line is split into its digits at the notches between them; digits
 // drawn as shapes of their own are taken whole.
 
@@ -178,11 +181,32 @@ function splitDigits(P, k, H) {
   return out.every(Boolean) ? out : null;
 }
 
+// Each digit lies in one drawing's plane: world axes [along 1, along 2, thickness]. The shapes
+// below keep their plane coordinates as (x, z) in the names (cx, cz, ux, uz), whichever plane.
+const PLANE = { top: [0, 2, 1], front: [0, 1, 2] };
+
 export function buildDigits(doc, frame, measure, mesh) {
-  if (!measure.hasTop || !measure.topMask) return null;
-  const H = measure.H, n = mesh.nV, pos = mesh.pos, Q = mesh.quads;
-  // the top view's outlines, world (x, z): the edge of its mask, whatever strokes drew it
-  const outlines = maskContours(measure.topMask).map((l) => resample(l.map(([xd, yd]) => frame.tw(xd, yd)), 0.001 * H)).filter((P) => P.length > 12);
+  const H = measure.H, W = measure.W, n = mesh.nV, pos = mesh.pos, Q = mesh.quads;
+  // outlines, world coordinates in their plane: the edge of each mask, whatever strokes drew it.
+  // Top view (x, z): the feet. Front view (x, y): the hands, the stretch of the front outline
+  // beyond each wrist (closed across the wrist).
+  const outlines = [];
+  if (measure.topMask) for (const l of maskContours(measure.topMask)) outlines.push({ plane: 'top', P: resample(l.map(([xd, yd]) => frame.tw(xd, yd)), 0.001 * H) });
+  if (measure.frontMask) for (const l of maskContours(measure.frontMask)) {
+    const P = l.map(([xd, yd]) => frame.fw(xd, yd)), m = P.length;
+    for (const sign of [1, -1]) {
+      const out = (i) => sign * P[i][0] > W.wristX, i0 = P.findIndex((_, i) => !out(i));
+      if (i0 < 0) continue;
+      let run = [], best = [];
+      for (let k = 1; k <= m; k++) {
+        const i = (i0 + k) % m;
+        if (out(i)) run.push(P[i]);
+        else { if (run.length > best.length) best = run; run = []; }
+      }
+      if (best.length) outlines.push({ plane: 'front', P: resample(best, 0.001 * H) });
+    }
+  }
+  for (let i = outlines.length - 1; i >= 0; i--) if (outlines[i].P.length <= 12) outlines.splice(i, 1);
   if (!outlines.length) return null;
   // width of a shape across its axis at s (polygon cut by the perpendicular line)
   const widthAt = (sh, s) => {
@@ -246,7 +270,8 @@ export function buildDigits(doc, frame, measure, mesh) {
     // where the tube ends and the rounded tip begins (the last loop)
     const lastC = cen(loops[loops.length - 1].verts);
     const sLast = (lastC[0] - B[0]) * d[0] + (lastC[1] - B[1]) * d[1] + (lastC[2] - B[2]) * d[2];
-    digits.push({ key, toe: key.startsWith('toe'), side: key.slice(-1), verts, first, loops, B, d, sTip, sLast, mid: [(B[0] + E[0]) / 2, (B[2] + E[2]) / 2] });
+    const toe = key.startsWith('toe'), plane = toe ? 'top' : 'front', [a0, a1] = PLANE[plane];
+    digits.push({ key, toe, plane, side: key.slice(-1), verts, first, loops, B, d, sTip, sLast, mid: [(B[a0] + E[a0]) / 2, (B[a1] + E[a1]) / 2] });
   }
 
   // each digit goes with the outline nearest its middle; an outline holding several digits is
@@ -254,14 +279,15 @@ export function buildDigits(doc, frame, measure, mesh) {
   const dist2 = (p, q) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2;
   const byOutline = outlines.map(() => []);
   for (const g of digits) {
-    let bi = 0, bd = Infinity;
-    outlines.forEach((P, i) => { for (let k = 0; k < P.length; k += 4) { const e = dist2(P[k], g.mid); if (e < bd) { bd = e; bi = i; } } });
-    byOutline[bi].push(g);
+    let bi = -1, bd = Infinity;
+    outlines.forEach(({ plane, P }, i) => { if (plane === g.plane) for (let k = 0; k < P.length; k += 4) { const e = dist2(P[k], g.mid); if (e < bd) { bd = e; bi = i; } } });
+    if (bi >= 0) byOutline[bi].push(g);
   }
   const pool = []; // shapes for the digits left over: split pieces and outlines that are a digit on their own
-  const maxA = Math.max(...outlines.map((P) => pcaShape(P).area));
+  const maxA = {};
+  for (const { plane, P } of outlines) maxA[plane] = Math.max(maxA[plane] || 0, pcaShape(P).area);
   let split = 0;
-  outlines.forEach((P, i) => {
+  outlines.forEach(({ plane, P }, i) => {
     const gs = byOutline[i].sort((a, b) => rankOf(a.key) - rankOf(b.key));
     const parts = gs.length > 1 ? splitDigits(P, gs.length, H) : null;
     if (parts && parts.length === gs.length) {
@@ -272,12 +298,12 @@ export function buildDigits(doc, frame, measure, mesh) {
       split += gs.length;
       return;
     }
-    if (parts) pool.push(...parts);
-    else { const s = pcaShape(P); if (s.area < 0.3 * maxA && s.elong > 1.4) pool.push(s); }
+    if (parts) pool.push(...parts.map((s) => ({ ...s, plane })));
+    else { const s = pcaShape(P); if (s.area < 0.3 * maxA[plane] && s.elong > 1.4) pool.push({ ...s, plane }); }
   });
-  // the rest: nearest first, each shape used once
+  // the rest: nearest first (in the digit's own drawing), each shape used once
   const pairs = [];
-  for (const g of digits) if (!g.shape) for (const s of pool) pairs.push([Math.hypot(g.mid[0] - (s.cx + s.ux * (s.s0 + s.s1) / 2), g.mid[1] - (s.cz + s.uz * (s.s0 + s.s1) / 2)), g, s]);
+  for (const g of digits) if (!g.shape) for (const s of pool) if (s.plane === g.plane) pairs.push([Math.hypot(g.mid[0] - (s.cx + s.ux * (s.s0 + s.s1) / 2), g.mid[1] - (s.cz + s.uz * (s.s0 + s.s1) / 2)), g, s]);
   pairs.sort((a, b) => a[0] - b[0]);
   const usedS = new Set();
   for (const [dist, g, s] of pairs) {
@@ -292,21 +318,25 @@ export function buildDigits(doc, frame, measure, mesh) {
     const sh = g.shape;
     if (!sh) continue;
     matched++;
+    const [a0x, a1x, nx] = PLANE[g.plane];
     // orient the drawn axis from base (the end nearer the digit's first loop) to tip; pieces cut
     // from an outline already are
     let ux = sh.ux, uz = sh.uz;
-    const sB = (g.B[0] - sh.cx) * ux + (g.B[2] - sh.cz) * uz;
+    const sB = (g.B[a0x] - sh.cx) * ux + (g.B[a1x] - sh.cz) * uz;
     if (!sh.cut && Math.abs(sB - sh.s1) < Math.abs(sB - sh.s0)) { ux = -ux; uz = -uz; }
     const sBase = ux === sh.ux ? sh.s0 : -sh.s1, sEnd = ux === sh.ux ? sh.s1 : -sh.s0; // in the oriented frame
     const L = sEnd - sBase;
     // the digit's first loop sits a little way along from the drawn base (a shape of its own
     // reaches back into the palm; a piece cut from the outline starts at the web)
     const a0 = sBase + (sh.cut ? -0.15 : 0.28) * L;
-    // the cage's frame for the digit: axis d, across (horizontal, perpendicular), up
-    const ew0 = [-g.d[2], 0, g.d[0]], el = Math.hypot(...ew0) || 1;
+    // the cage's frame for the digit: axis d, across (in the drawing's plane, perpendicular), and
+    // through (the thickness, out of that plane)
+    const ew0 = [0, 0, 0];
+    ew0[a0x] = -g.d[a1x]; ew0[a1x] = g.d[a0x];
+    const el = Math.hypot(...ew0) || 1;
     const ew = ew0.map((x) => x / el);
     const et = [g.d[1] * ew[2] - g.d[2] * ew[1], g.d[2] * ew[0] - g.d[0] * ew[2], g.d[0] * ew[1] - g.d[1] * ew[0]];
-    const up = et[1] < 0 ? -1 : 1;
+    const up = et[nx] < 0 ? -1 : 1;
     // each loop's place along the digit, its centre and size in that frame: every point's offset is
     // measured from the centre and against the size of the loops either side of it (the cage tapers)
     const rings = g.loops.map((l) => {
@@ -332,6 +362,9 @@ export function buildDigits(doc, frame, measure, mesh) {
     // drawn end by about the digit's half width, or the tip is rounded twice and turns pointed
     const mid = widthAt(oriented, (a0 + sEnd) / 2);
     const rEnd = mid ? (mid[1] - mid[0]) / 2 : 0.01 * H;
+    // the drawn width is read from a little past the base: fingers drawn with open gaps between
+    // them start at the rounded bottom of a web, where the cut across the piece is too narrow
+    const sW = sBase + (g.toe ? 0.01 : 0.1) * L;
     for (const v of g.verts) {
       const sc = Math.max(0, (pos[3 * v] - g.B[0]) * g.d[0] + (pos[3 * v + 1] - g.B[1]) * g.d[1] + (pos[3 * v + 2] - g.B[2]) * g.d[2]);
       const rg = ringAt(sc);
@@ -341,28 +374,30 @@ export function buildDigits(doc, frame, measure, mesh) {
       // the drawn half width
       const sCap = sEnd - rEnd;
       const s = sc <= g.sLast ? a0 + (g.sLast > 0 ? sc / g.sLast : 0) * (sCap - a0) : sCap + ((sc - g.sLast) / Math.max(1e-6, g.sTip - g.sLast)) * rEnd * 0.9;
-      const cut = widthAt(oriented, Math.max(sBase + 0.01 * L, Math.min(s, sEnd - rEnd))) || [-0.004 * H, 0.004 * H];
+      const cut = widthAt(oriented, Math.max(sW, Math.min(s, sEnd - rEnd))) || [-0.004 * H, 0.004 * H];
       const wc = (cut[0] + cut[1]) / 2, hw = Math.max(0.002 * H, (cut[1] - cut[0]) / 2 * 0.92);
-      const x = sh.cx + s * ux - wc * uz, z = sh.cz + s * uz + wc * ux;
-      // thickness and height: fingers from the front view at that point, toes resting on the floor
-      let cy, ht;
+      const p0 = sh.cx + s * ux - wc * uz, p1 = sh.cz + s * uz + wc * ux; // in the drawing's plane
+      // thickness, and the centre across it: toes resting on the floor, with the side view's height;
+      // fingers with the hand's thickness there, centred in it; the thumb at the depth the cage
+      // gives it (it stands a little in front of the palm)
+      let cn, ht;
       if (g.toe) {
-        const col = measure.samplers.sideCol(z).filter(([lo]) => lo < 0.06 * H);
+        const col = measure.samplers.sideCol(p1).filter(([lo]) => lo < 0.06 * H);
         const hFoot = col.length ? col[0][1] : 0.02 * H;
         ht = Math.min(0.8 * hw, Math.max(0.003 * H, hFoot / 2));
-        cy = ht + 0.001 * H;
+        cn = ht + 0.001 * H;
       } else {
-        const arm = measure.armAt(g.side === 'L' ? 1 : -1, x);
-        ht = Math.min(0.85 * hw, Math.max(0.003 * H, arm.ry * 0.9));
-        cy = arm.cy;
+        const hand = measure.arm(g.side === 'L' ? 1 : -1, p0);
+        ht = Math.min(0.85 * hw, Math.max(0.003 * H, hand.rz * 0.9));
+        cn = g.key.startsWith('thumb') ? rg.c[nx] : hand.cz;
       }
       // across the drawn width; the offset keeps its direction (sign of across matches the cage's)
-      const across = [-uz * Math.sign(ew[0] * -uz + ew[2] * ux || 1), ux * Math.sign(ew[0] * -uz + ew[2] * ux || 1)];
+      const sg = Math.sign(ew[a0x] * -uz + ew[a1x] * ux || 1), across = [-uz * sg, ux * sg];
       const r = Math.hypot(ow, ot);
       const k = r > 1 ? 1 / r : 1; // points just outside the first loop's box: keep on the ellipse
-      target[3 * v] = x + across[0] * ow * k * hw;
-      target[3 * v + 1] = cy + ot * k * ht;
-      target[3 * v + 2] = z + across[1] * ow * k * hw;
+      target[3 * v + a0x] = p0 + across[0] * ow * k * hw;
+      target[3 * v + a1x] = p1 + across[1] * ow * k * hw;
+      target[3 * v + nx] = cn + ot * k * ht;
       list.push(v);
     }
   }

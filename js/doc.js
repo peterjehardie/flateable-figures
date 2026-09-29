@@ -36,7 +36,7 @@ export function createDoc() {
     views: {
       front: { top: 0, floor: 800, axis: 250, manual: {} },
       side: { top: 0, floor: 800, axis: 750, facing: 'left', manual: {} },
-      top: { axisX: 250, axisZ: 1000, manual: {} }, // plan view of hands and feet, same scale as the front
+      top: { axisX: 250, axisZ: 1000, manual: {} }, // plan view of the feet, same scale as the front
     },
     splitY: null, // below this (and left of splitX) is the top view
     landmarks: [],

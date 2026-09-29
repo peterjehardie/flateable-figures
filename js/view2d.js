@@ -444,7 +444,7 @@ export class View2D {
         ctx.strokeStyle = css.muted; ctx.globalAlpha = 0.35; ctx.setLineDash([2 * px, 6 * px]);
         ctx.beginPath(); ctx.moveTo(h.x0, h.y); ctx.lineTo(h.x1, h.y); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 0.7; ctx.fillStyle = css.muted;
-        ctx.fillText('top view (hands and feet, seen from above) ↓', h.x0 + 2 * px, h.y + 13 * px);
+        ctx.fillText('top view (feet, seen from above) ↓', h.x0 + 2 * px, h.y + 13 * px);
         ctx.globalAlpha = 1;
         continue;
       }
