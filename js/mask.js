@@ -92,9 +92,11 @@ function finish(fr, R, offsetPx) {
   return { ...fr, sd, gx, gy, area };
 }
 
-// Outline mask from open or closed strokes.
-export function buildHullMask(paths, region, { cell, gap }) {
-  const lw = Math.max(1.5, (2 * gap) / cell);
+// Outline mask from open or closed strokes. With `ends`, strokes are drawn thin and only where an
+// open stroke stops short is the gap closed (its end joined to the nearest line within the gap
+// tolerance): narrow notches along a line, between fingers or toes, stay open.
+export function buildHullMask(paths, region, { cell, gap, ends = false }) {
+  const lw = ends ? 2 : Math.max(1.5, (2 * gap) / cell);
   const fr = frameFor(region, cell, gap + cell * 6);
   const { W, H } = fr;
   const cv = makeCanvas(W, H);
@@ -112,6 +114,14 @@ export function buildHullMask(paths, region, { cell, gap }) {
     if (p.closed) ctx.closePath();
     if (p.pts.length === 1) ctx.lineTo((p.pts[0][0] - fr.x0) / cell + 0.01, (p.pts[0][1] - fr.y0) / cell);
     ctx.stroke();
+  }
+  if (ends) {
+    for (const [e, q] of endBridges(paths, 2 * gap)) {
+      ctx.beginPath();
+      ctx.moveTo((e[0] - fr.x0) / cell, (e[1] - fr.y0) / cell);
+      ctx.lineTo((q[0] - fr.x0) / cell, (q[1] - fr.y0) / cell);
+      ctx.stroke();
+    }
   }
   const a = ctx.getImageData(0, 0, W, H).data;
   const wall = new Uint8Array(W * H);
@@ -134,6 +144,35 @@ export function buildHullMask(paths, region, { cell, gap }) {
   const R = new Uint8Array(W * H);
   for (let i = 0; i < W * H; i++) R[i] = out[i] ? 0 : 1;
   return finish(fr, R, lw / 2);
+}
+
+// For each end of an open stroke: the nearest point on any line within `reach` (on its own stroke,
+// only well away from that end), as [end, point] pairs.
+function endBridges(paths, reach) {
+  const out = [];
+  for (const p of paths) {
+    if (p.closed || p.pts.length < 2) continue;
+    const n = p.pts.length, arc = [0];
+    for (let i = 1; i < n; i++) arc.push(arc[i - 1] + Math.hypot(p.pts[i][0] - p.pts[i - 1][0], p.pts[i][1] - p.pts[i - 1][1]));
+    for (const end of [0, n - 1]) {
+      const e = p.pts[end];
+      let best = null, bd = reach;
+      for (const o of paths) {
+        const m = o.pts.length, segs = o.closed ? m : m - 1;
+        for (let i = 0; i < segs; i++) {
+          // own stroke: skip the part near this end (it would only bridge to itself)
+          if (o === p && Math.min(Math.abs(arc[i] - arc[end]), Math.abs(arc[Math.min(i + 1, n - 1)] - arc[end])) < 3 * reach) continue;
+          const a = o.pts[i], b = o.pts[(i + 1) % m];
+          const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy;
+          const t = L2 ? Math.max(0, Math.min(1, ((e[0] - a[0]) * dx + (e[1] - a[1]) * dy) / L2)) : 0;
+          const q = [a[0] + dx * t, a[1] + dy * t], d = Math.hypot(q[0] - e[0], q[1] - e[1]);
+          if (d < bd) { bd = d; best = q; }
+        }
+      }
+      if (best) out.push([e, best]);
+    }
+  }
+  return out;
 }
 
 // Filled closed polygon (cross-sections).
@@ -220,6 +259,51 @@ export function colSpans(m, x) {
     if (!ins && start >= 0) { out.push([m.y0 + start * m.cell, m.y0 + r * m.cell]); start = -1; }
   }
   return out;
+}
+
+// The outlines of a mask: its zero level as closed polylines (marching squares), in document units.
+// Whatever strokes made the mask, this is the shape the balloon is held to.
+export function maskContours(m) {
+  const { W, H, sd } = m;
+  const pts = new Map(), nb = new Map();
+  const at = (id, x0, y0, x1, y1, v0, v1) => {
+    if (!pts.has(id)) { const t = v0 / (v0 - v1); pts.set(id, [m.x0 + (x0 + (x1 - x0) * t + 0.5) * m.cell, m.y0 + (y0 + (y1 - y0) * t + 0.5) * m.cell]); }
+    return id;
+  };
+  const link = (e, f) => { if (!nb.has(e)) nb.set(e, []); if (!nb.has(f)) nb.set(f, []); nb.get(e).push(f); nb.get(f).push(e); };
+  for (let j = 0; j < H - 1; j++) for (let i = 0; i < W - 1; i++) {
+    const a = sd[j * W + i], b = sd[j * W + i + 1], c = sd[(j + 1) * W + i + 1], d = sd[(j + 1) * W + i];
+    const k = (a < 0 ? 1 : 0) | (b < 0 ? 2 : 0) | (c < 0 ? 4 : 0) | (d < 0 ? 8 : 0);
+    if (k === 0 || k === 15) continue;
+    // cell edges: top a-b, right b-c, bottom d-c, left a-d (ids shared with the neighbouring cells)
+    const T = (a < 0) !== (b < 0) ? at(2 * (j * W + i), i, j, i + 1, j, a, b) : -1;
+    const R = (b < 0) !== (c < 0) ? at(2 * (j * W + i + 1) + 1, i + 1, j, i + 1, j + 1, b, c) : -1;
+    const B = (d < 0) !== (c < 0) ? at(2 * ((j + 1) * W + i), i, j + 1, i + 1, j + 1, d, c) : -1;
+    const L = (a < 0) !== (d < 0) ? at(2 * (j * W + i) + 1, i, j, i, j + 1, a, d) : -1;
+    if (k === 5 || k === 10) {
+      // saddle: the centre decides which corners are joined
+      const cIn = a + b + c + d < 0;
+      if ((k === 5) === cIn) { link(T, R); link(B, L); } else { link(T, L); link(R, B); }
+      continue;
+    }
+    const e = [T, R, B, L].filter((x) => x >= 0);
+    link(e[0], e[1]);
+  }
+  const loops = [], seen = new Set();
+  for (const start of nb.keys()) {
+    if (seen.has(start)) continue;
+    const loop = [];
+    let prev = -1, cur = start;
+    while (!seen.has(cur)) {
+      seen.add(cur);
+      loop.push(pts.get(cur));
+      const [p, q] = nb.get(cur);
+      const next = p !== prev ? p : q;
+      prev = cur; cur = next;
+    }
+    if (loop.length > 8) loops.push(loop);
+  }
+  return loops;
 }
 
 export function maskBBox(m) {

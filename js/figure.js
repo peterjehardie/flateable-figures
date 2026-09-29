@@ -33,9 +33,8 @@ const MALE = {
   sideBack: [[-0.25, 8.0, 'c'], [-0.3, 7.9], [-0.27, 7.72], [-0.18, 7.52], [-0.2, 7.25], [-0.31, 6.85], [-0.42, 6.42], [-0.37, 6.1], [-0.28, 5.87], [-0.37, 5.45], [-0.45, 4.85], [-0.47, 4.3],
     [-0.555, 3.92], [-0.5, 3.55], [-0.385, 3.28], [-0.33, 3.0], [-0.39, 2.6], [-0.47, 2.12], [-0.46, 1.72], [-0.36, 1.42], [-0.25, 1.2], [-0.28, 1.0], [-0.44, 0.72], [-0.48, 0.45], [-0.41, 0.2], [-0.22, 0.04]],
   armSection: { z: -0.04, y: 1.63, rz: 0.25, ry: 0.22 },
-  // top view (from above), figure's left hand and left foot: x out, z forward
-  hand: [[3.12, -0.19], [3.35, -0.21], [3.56, -0.24], [3.73, -0.23], [3.87, -0.19], [3.96, -0.12], [4.03, -0.04], [3.99, 0.05], [3.82, 0.1], [3.63, 0.11], [3.59, 0.16], [3.63, 0.25], [3.6, 0.3], [3.52, 0.28], [3.38, 0.2], [3.25, 0.13], [3.12, 0.1]],
-  foot: [[0.28, -0.28], [0.4, -0.22], [0.43, 0.05], [0.455, 0.3], [0.485, 0.55], [0.46, 0.7], [0.39, 0.8], [0.29, 0.86], [0.18, 0.89], [0.11, 0.81], [0.1, 0.6], [0.14, 0.32], [0.165, 0.05], [0.17, -0.2]],
+  // top view: the size of the foot relative to the adult male's (hands follow the arm)
+  foot: 1,
   landmarks: [0, 1, 1.33, 2, 3, 4, 6, 7.6, 8],
   armX: [1.0, 2.3, 3.18, 4.03],
   heightM: 1.83,
@@ -60,8 +59,7 @@ const FEMALE = {
   sideBack: [[-0.22, 8.0, 'c'], [-0.26, 7.9], [-0.23, 7.72], [-0.16, 7.52], [-0.18, 7.25], [-0.27, 6.85], [-0.36, 6.45], [-0.32, 6.12], [-0.25, 5.9], [-0.33, 5.45], [-0.42, 4.85], [-0.46, 4.35],
     [-0.6, 3.95], [-0.56, 3.6], [-0.4, 3.3], [-0.26, 2.95], [-0.3, 2.6], [-0.4, 2.15], [-0.4, 1.75], [-0.32, 1.45], [-0.22, 1.22], [-0.25, 1.0], [-0.42, 0.72], [-0.46, 0.45], [-0.39, 0.2], [-0.21, 0.04]],
   armSection: { z: -0.04, y: 1.635, rz: 0.21, ry: 0.19 },
-  hand: [[3.05, -0.17], [3.27, -0.19], [3.47, -0.215], [3.62, -0.205], [3.75, -0.17], [3.84, -0.11], [3.92, -0.035], [3.88, 0.045], [3.73, 0.09], [3.55, 0.1], [3.51, 0.145], [3.55, 0.225], [3.52, 0.27], [3.44, 0.25], [3.31, 0.18], [3.18, 0.115], [3.05, 0.09]],
-  foot: [[0.25, -0.25], [0.35, -0.2], [0.38, 0.05], [0.4, 0.28], [0.425, 0.5], [0.4, 0.63], [0.34, 0.72], [0.26, 0.77], [0.16, 0.8], [0.1, 0.73], [0.09, 0.55], [0.125, 0.3], [0.145, 0.05], [0.15, -0.18]],
+  foot: 0.9,
   landmarks: [0, 1, 1.35, 2.17, 3.17, 4.12, 6.02, 7.6, 8],
   armX: [0.9, 2.25, 3.1, 3.92],
   heightM: 1.73,
@@ -98,14 +96,38 @@ function catmull(pts, closed, perSeg = 10) {
   return out;
 }
 
-// closed outline of a tapered capsule from a (radius ra) to b (radius rb)
-function capsule(a, b, ra, rb, n = 10) {
-  const dx = b[0] - a[0], dz = b[1] - a[1], L = Math.hypot(dx, dz) || 1;
-  const ux = dx / L, uz = dz / L, px = -uz, pz = ux;
-  const pts = [];
-  for (let i = 0; i <= n; i++) { const t = Math.PI / 2 + (Math.PI * i) / n; pts.push([a[0] + (ux * Math.cos(t) + px * Math.sin(t)) * ra, a[1] + (uz * Math.cos(t) + pz * Math.sin(t)) * ra]); }
-  for (let i = 0; i <= n; i++) { const t = -Math.PI / 2 + (Math.PI * i) / n; pts.push([b[0] + (ux * Math.cos(t) + px * Math.sin(t)) * rb, b[1] + (uz * Math.cos(t) + pz * Math.sin(t)) * rb]); }
-  return pts;
+// one side of a drawn outline round a finger or toe: up one side from the base (centre b, at the
+// web), round the tip, back down the other side. d: unit direction; widths w0 at the base, w1 at
+// the tip; a slight swelling at the finger joints. Walked with the -n side first (n = d turned
+// toward +v), or the +n side with flip.
+function digit(b, d, len, w0, w1, flip = false, joints = !flip) {
+  const n = [-d[1], d[0]], s0 = flip ? 1 : -1, r1 = w1 / 2, L = len - r1;
+  const bump = (t) => (joints ? 0.022 * w0 * (Math.exp(-(((t - 0.36) / 0.1) ** 2)) + 0.7 * Math.exp(-(((t - 0.74) / 0.08) ** 2))) : 0);
+  const side = (t, s) => { const w = (w0 + (w1 - w0) * t) / 2 + bump(t) / 2; return [b[0] + d[0] * L * t + s * n[0] * w, b[1] + d[1] * L * t + s * n[1] * w]; };
+  const T = [0, 0.2, 0.36, 0.55, 0.74, 0.9, 1];
+  const out = T.map((t) => side(t, s0));
+  const c = [b[0] + d[0] * L, b[1] + d[1] * L];
+  for (let k = 1; k < 6; k++) {
+    const th = (Math.PI * k) / 6;
+    out.push([c[0] + r1 * (Math.cos(th) * s0 * n[0] + Math.sin(th) * d[0]), c[1] + r1 * (Math.cos(th) * s0 * n[1] + Math.sin(th) * d[1])]);
+  }
+  for (let i = T.length - 1; i >= 0; i--) out.push(side(T[i], -s0));
+  return out;
+}
+
+// neighbouring digits (specs: base, angle, length, widths) in one line, each pair joined by a
+// small rounded web a little behind their bases
+function digitRow(specs, web, flip = false) {
+  const out = [];
+  specs.forEach(([b, a, len, w0, w1], i) => {
+    const d = [Math.cos(a), Math.sin(a)], pts = digit(b, d, len, w0, w1, flip);
+    if (i) {
+      const p = out[out.length - 1], q = pts[0], a0 = specs[i - 1][1], da = [(Math.cos(a0) + d[0]) / 2, (Math.sin(a0) + d[1]) / 2];
+      out.push([(p[0] + q[0]) / 2 - web * da[0], (p[1] + q[1]) / 2 - web * da[1]]);
+    }
+    out.push(...pts);
+  });
+  return out;
 }
 
 function interp(xs, ys, x) {
@@ -155,21 +177,35 @@ export function buildFigure(key) {
   const side = [...B.sideFront, ...B.sideBack].map((p) => [sideZ(p[0], p[1]), Y(p[1]), p[2]]);
   const sec = B.armSection;
 
-  // top view: hands (palm, four fingers, thumb) and feet (sole, five toes), each digit its own
-  // shape with a small gap, so every finger and toe gets its own space to inflate into
-  const xw = armX(B.armX[2]), xt = armX(B.armX[3]), Lh = xt - xw, xk = xw + 0.45 * Lh;
+  // top view: each hand and each foot is one continuous outline, as an artist draws it. The line
+  // runs up and down every finger and toe, with a narrow notch between neighbours (open toward
+  // the tips) so each digit keeps its own space to inflate into; the detail pass splits the
+  // outline into digits at those notches (digits.js).
+  const xw = armX(B.armX[2]), xt = armX(B.armX[3]), Lh = xt - xw;
   const hz = sec.z * body;
-  const pw = 0.19 * Lh / 0.85; // palm half width (heads)
-  const palm = [[xw, hz - 0.14 * limb], [xw + 0.22 * Lh, hz - pw * 1.02], [xk + 0.02 * Lh, hz - pw * 0.98], [xk + 0.04 * Lh, hz + pw * 0.95],
-    [xw + 0.3 * Lh, hz + pw * 1.02], [xw + 0.12 * Lh, hz + pw * 0.95], [xw, hz + 0.13 * limb]];
-  const FZ = [0.72, 0.24, -0.24, -0.7], FL = [0.52, 0.56, 0.53, 0.42], FW = [0.105, 0.11, 0.1, 0.085], SP = [0.035, 0.01, -0.012, -0.04];
-  const fingers = FZ.map((fz, f) => capsule([xk - 0.06 * Lh, hz + fz * pw], [xk + FL[f] * Lh, hz + fz * pw + SP[f] * Lh], FW[f] * Lh * 0.42, FW[f] * Lh * 0.34));
-  const tb = [xw + 0.16 * Lh, hz + pw * 0.75], tdir = [0.55, 0.83];
-  const thumb = capsule(tb, [tb[0] + tdir[0] * 0.44 * Lh, tb[1] + tdir[1] * 0.44 * Lh], 0.075 * Lh, 0.05 * Lh);
-  const fb = body;
-  const sole = [[0.28, -0.28], [0.4, -0.22], [0.43, 0.05], [0.455, 0.3], [0.49, 0.5], [0.47, 0.6], [0.3, 0.63], [0.12, 0.64], [0.1, 0.5], [0.14, 0.3], [0.165, 0.05], [0.17, -0.2]].map(([x, z]) => [x * fb, z * fb]);
-  const TOES = [[[0.17, 0.58], [0.16, 0.88], 0.058], [[0.265, 0.6], [0.275, 0.84], 0.033], [[0.335, 0.58], [0.35, 0.8], 0.031], [[0.4, 0.55], [0.42, 0.75], 0.029], [[0.455, 0.5], [0.475, 0.68], 0.027]];
-  const toes = TOES.map(([a, b, r]) => capsule([a[0] * fb, a[1] * fb], [b[0] * fb, b[1] * fb], r * fb, r * fb * 0.9));
+  // hand in its own frame: u from the wrist to the middle fingertip, v across toward the thumb
+  // (forward, +z); both in hand lengths. The wrist keeps the forearm's width.
+  const H_ = (u, v, c) => [xw + u * Lh, hz + v * Lh, c];
+  const wu = (0.14 * limb) / Lh, wr = (0.13 * limb) / Lh;
+  const hand = [[0, -wu, 'c'], [0.16, -0.5 * wu - 0.11], [0.33, -0.224], [0.47, -0.218], [0.53, -0.205]];
+  // fingers little -> index: base centre (at the web), angle (toward the thumb), web-to-tip length, width at base and tip
+  hand.push(...digitRow([[[0.565, -0.1585], -0.1, 0.3, 0.084, 0.07], [[0.59, -0.062], -0.04, 0.38, 0.097, 0.082],
+    [[0.6, 0.0445], 0, 0.4, 0.104, 0.088], [[0.585, 0.1525], 0.05, 0.37, 0.1, 0.085]], 0.006));
+  // index side of the palm, the web to the thumb, the thumb (seen from its side), the thenar, the wrist
+  hand.push([0.52, 0.212], [0.44, 0.226]);
+  hand.push(...digit([0.3, 0.285], [0.78, 0.625], 0.25, 0.15, 0.108, false, false));
+  hand.push([0.13, 0.29], [0, wr, 'c']);
+  const handPts = hand.map(([u, v, c]) => H_(u, v, c));
+  // left foot: x out (lateral), z forward. Heel, the outer edge, five toes from the little one in,
+  // the ball and the inner edge with a shallow arch. Toes are laid out as (z, x): along, across.
+  const fb = body * (B.foot || 1);
+  const foot = [[0.37, -0.262], [0.405, -0.19], [0.43, 0.0], [0.462, 0.2], [0.5, 0.4], [0.516, 0.53]];
+  // toes little -> big: base centre (z, x at the web), angle (lateral), web-to-tip length, width at base and tip
+  const toes = digitRow([[[0.645, 0.487], 0.03, 0.075, 0.062, 0.058], [[0.685, 0.418], 0.05, 0.09, 0.064, 0.06], [[0.715, 0.346], 0.03, 0.11, 0.068, 0.064],
+    [[0.735, 0.27], 0.01, 0.125, 0.072, 0.068], [[0.73, 0.163], -0.02, 0.15, 0.13, 0.122]], 0.008, true);
+  foot.push(...toes.map(([z, x]) => [x, z]));
+  foot.push([0.095, 0.6], [0.09, 0.48], [0.105, 0.3], [0.13, 0.1], [0.14, -0.05], [0.148, -0.19], [0.2, -0.272], [0.28, -0.292]);
+  const footPts = foot.map(([x, z]) => [x * fb, z * fb]);
 
   // ---- to document coordinates ----
   const FX = 900, SX = FX + (tip + 0.9) * U + 0.8 * U, H = n * U, TZ = H + 1.9 * U;
@@ -185,11 +221,10 @@ export function buildFigure(key) {
     secPts.push([SX - (sec.z * body + sec.rz * limb * Math.cos(t)) * U, Y(sec.y) * U + sec.ry * limb * Math.sin(t) * U]);
   }
   P(secPts, true, { role: 'section', view: 'side', color: '#0e7d89', part: 'arm' });
-  const plan = (pts, s, smooth = true) => { const q = pts.map(([x, z]) => [FX + s * x * U, TZ + z * U]); return smooth ? catmull(q, true) : q; };
+  const plan = (pts, s) => catmull(pts.map(([x, z, c]) => [FX + s * x * U, TZ + z * U, c]), true, 6);
   for (const s of [1, -1]) {
-    P(plan(palm, s), true, { role: 'line', view: 'top' });
-    for (const f of [...fingers, thumb, ...toes]) P(plan(f, s, false), true, { role: 'line', view: 'top' });
-    P(plan(sole, s), true, { role: 'line', view: 'top' });
+    P(plan(handPts, s), true, { role: 'line', view: 'top' });
+    P(plan(footPts, s), true, { role: 'line', view: 'top' });
   }
   // face features in the front view and the profile (head units stay the same at every age)
   const faceCol = '#b0587a', fopt = { role: 'feature', color: faceCol, group: 'face' };

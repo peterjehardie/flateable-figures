@@ -13,6 +13,7 @@ const HULL_ROLES = new Set(['line', 'feature', 'section']);
 
 export function buildMasks(doc, { gapFrac = 0.012, res = 1000 } = {}) {
   const masks = { front: null, side: null, top: null, section: null };
+  let hFig = 0;
   for (const view of ['front', 'side', 'top']) {
     const ps = doc.paths.filter((p) => p.view === view && HULL_ROLES.has(p.role));
     if (!ps.some((p) => p.role === 'line')) continue;
@@ -20,7 +21,12 @@ export function buildMasks(doc, { gapFrac = 0.012, res = 1000 } = {}) {
     for (const p of ps) { const bb = bboxOf(p.pts); b.x0 = Math.min(b.x0, bb.x0); b.y0 = Math.min(b.y0, bb.y0); b.x1 = Math.max(b.x1, bb.x1); b.y1 = Math.max(b.y1, bb.y1); }
     const h = Math.max(b.y1 - b.y0, 1);
     const cell = h / res;
-    masks[view] = buildHullMask(ps, b, { cell, gap: Math.max(gapFrac * h, cell * 0.75) });
+    // top view: hands and feet are single outlines with narrow notches between the digits, which
+    // thick strokes would seal; there only the ends of open strokes are joined across gaps, and
+    // the gap is measured on the figure's height (the top view itself is only a foot or so deep)
+    if (view === 'front') hFig = h;
+    const top = view === 'top';
+    masks[view] = buildHullMask(ps, b, { cell, gap: Math.max(gapFrac * (top && hFig ? hFig : h), cell * 0.75), ends: top });
     masks[view].view = view;
   }
   const sec = doc.paths.find((p) => p.view === 'side' && p.role === 'section' && p.pts.length > 2);
