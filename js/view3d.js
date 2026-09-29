@@ -269,6 +269,7 @@ export class View3D {
     if (this.cage) this.cage.visible = this.show.cage;
     if (this.loopsObj) this.loopsObj.visible = this.show.loops;
     this.drawGroup.visible = this.show.drawings;
+    if (this.skel) this.skel.visible = this.show.skeleton !== false;
     this.needs = true;
   }
 
@@ -302,6 +303,33 @@ export class View3D {
     make('front', 0xd9463b, 0.55);
     make('side', 0x2f6fe0, 0.55);
     make('top', 0x2f9e6a, 0.7);
+    this.needs = true;
+  }
+
+  // skeleton: bones as lines, joints as dots, drawn over the mesh
+  setSkeleton(rig, pos) {
+    if (!this.skel) {
+      this.skel = new THREE.Group();
+      this.skel.renderOrder = 5;
+      this.scene.add(this.skel);
+    }
+    for (const o of [...this.skel.children]) { this.skel.remove(o); o.geometry.dispose(); }
+    if (!rig || !pos) { this.needs = true; return; }
+    const seg = [], pts = [];
+    rig.joints.forEach((j, i) => {
+      pts.push(...pos[i]);
+      if (j.parent >= 0) seg.push(...pos[j.parent], ...pos[i]);
+    });
+    const lg = new THREE.BufferGeometry();
+    lg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(seg), 3));
+    const lines = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: this.skelColor || 0xe0a100, depthTest: false, transparent: true, opacity: 0.95 }));
+    lines.renderOrder = 5;
+    const pg = new THREE.BufferGeometry();
+    pg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+    const dots = new THREE.Points(pg, new THREE.PointsMaterial({ color: this.skelColor || 0xe0a100, size: 6, sizeAttenuation: false, depthTest: false }));
+    dots.renderOrder = 6;
+    this.skel.add(lines, dots);
+    this.skel.visible = this.show.skeleton !== false;
     this.needs = true;
   }
 

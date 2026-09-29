@@ -100,6 +100,10 @@ input[type=number] { width: 76px; font-family: var(--mono); font-size: 12px; }
 .tag-body { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; }
 .tag-body .slider { font-size: 12px; }
 .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.rig-map { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 3px 8px; font-size: 12px; max-height: 320px; overflow: auto; align-items: center; }
+.rig-map span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rig-map span.off { color: var(--muted); }
+.rig-map select { font-size: 12px; padding: 1px 4px; }
 .sel-card { border: 1px solid var(--line); border-radius: var(--r); padding: 8px; display: flex; flex-direction: column; gap: 8px; background: var(--panel-2); }
 .lm-list { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .lm-item { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; padding: 3px 6px; border-radius: 5px; }
@@ -194,6 +198,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
         <button class="tab" role="tab" data-tab="topology" aria-selected="false">Topology</button>
         <button class="tab" role="tab" data-tab="balloon" aria-selected="false">Balloon</button>
         <button class="tab" role="tab" data-tab="tags" aria-selected="false">Tags</button>
+        <button class="tab" role="tab" data-tab="rig" aria-selected="false">Rig</button>
       </div>
 
       <div class="tabpanel" data-panel="drawing">
@@ -334,6 +339,34 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <div class="row"><label for="exp-level">Resolution</label><select id="exp-level"></select></div>
           <div class="btn-row"><button class="btn primary" id="btn-export2">Download OBJ + tags (.zip)</button><button class="btn" id="btn-copy-obj">Copy OBJ</button></div>
           <p class="hint">Lower levels take the cage's own vertices off the inflated surface, so a level-0 export is a low-poly retopology of the balloon with the same loops.</p>
+        </div>
+      </div>
+      <div class="tabpanel" data-panel="rig" hidden>
+        <div class="group">
+          <h3>Skeleton</h3>
+          <p class="hint">A skeleton fitted to the inflated figure. The built-in one uses Mixamo-style joint names. <b>Load rig</b> takes another skeleton (our JSON, BVH, or the skeleton of a glTF/GLB model); its joints are matched to body points by name (Mixamo, Unreal, Rigify and similar), and the match can be changed below.</p>
+          <div class="stats" id="rig-status"></div>
+          <div class="btn-row"><button class="btn primary" id="btn-rig-fit">Fit to body</button><button class="btn" id="btn-rig-load">Load rig…</button><button class="btn" id="btn-rig-base">Use built-in</button></div>
+          <input type="file" id="rig-file" accept=".json,.bvh,.gltf,.glb" hidden>
+          <label class="toggle"><input type="checkbox" id="rig-show" checked>show the skeleton</label>
+        </div>
+        <div class="group">
+          <h3>Bend test</h3>
+          <p class="hint">Poses the figure with its skin weights. Watch the joints: volume lost, quads squashed flat or turned inside out.</p>
+          <div id="pose-sliders"></div>
+          <div class="stats" id="pose-report"></div>
+          <label class="toggle"><input type="checkbox" id="pose-strain">colour by stretch (blue squashed, red stretched)</label>
+          <div class="btn-row"><button class="btn" id="btn-pose-reset">Rest pose</button></div>
+        </div>
+        <div class="group">
+          <h3>Joints and body points</h3>
+          <p class="hint">Joints left without a body point keep their place between matched ones (twist and extra spine joints), or their offset from their parent.</p>
+          <div class="rig-map" id="rig-map"></div>
+        </div>
+        <div class="group">
+          <h3>Export</h3>
+          <div class="btn-row"><button class="btn primary" id="btn-glb">Download rigged glTF (.glb)</button><button class="btn" id="btn-rig-json">Rig as JSON</button></div>
+          <p class="hint">glTF carries the mesh (triangulated), the skeleton and the skin weights, at the resolution chosen under Tags → Export. Joints are exported unrotated (world-aligned).</p>
         </div>
       </div>
     </aside>

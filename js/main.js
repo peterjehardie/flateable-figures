@@ -12,6 +12,7 @@ import { View3D } from './view3d.js';
 import { PARTS } from './cage.js';
 import { buildFace } from './face.js';
 import { buildDigits } from './digits.js';
+import { initRigPanel } from './rigpanel.js';
 import { toOBJ, tagsJSON, makeZip, saveFile } from './exporter.js';
 import { bboxOf, parseColor, colorName, toHex } from './util.js';
 
@@ -86,6 +87,7 @@ function rebuildModel() {
   app.sim.computeNormals();
   app.settled = false;
   app.stillFrames = 0;
+  if (app.rigPanel) app.rigPanel.onModel();
   setRunning(false);
   updateTags();
   updatePins();
@@ -202,13 +204,13 @@ function loop(t) {
     if (sim.detail) {
       // detail pass on the face: judged on the head only, with a cap
       const d = sim.detail;
-      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); } }
+      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); if (app.rigPanel) app.rigPanel.onSettled(); } }
       else app.stillFrames = 0;
     } else if (sim.lastMove < 2.5e-5 && sim.iter > 60) {
       if (++app.stillFrames > 30) {
         app.stillFrames = 0;
         if (app.prm.faceDetail && (app.face || app.digits)) { sim.startDetail(app.face, app.digits); toast('Body settled: now working the face, hands and feet in finer steps'); }
-        else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); }
+        else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); if (app.rigPanel) app.rigPanel.onSettled(); }
       }
     } else app.stillFrames = 0;
     if (t - lastFit > 450) { lastFit = t; refreshFit(); }
@@ -223,7 +225,7 @@ function loop(t) {
 function wake() { app.settled = false; app.stillFrames = 0; }
 function setRunning(on) {
   app.running = on;
-  if (on) wake();
+  if (on) { wake(); if (app.rigPanel) app.rigPanel.onRun(); }
   $('btn-run').textContent = on ? 'Stop' : 'Inflate';
   $('btn-run').setAttribute('aria-pressed', String(on));
   statusLine();
@@ -814,6 +816,7 @@ async function boot() {
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', readCSS);
   new MutationObserver(readCSS).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
   bindControls();
+  app.rigPanel = initRigPanel(app, { $, toast, applyShading });
   syncControls();
   requestAnimationFrame(loop);
   let saved = null;
