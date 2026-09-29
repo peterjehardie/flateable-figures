@@ -376,10 +376,21 @@ export function makeMeasure(doc, masks, frame) {
     section = { cz, cy, rz: (hi[NP / 2] - lo[NP / 2]) / 2, ry: m.hh * frame.S.s, lo, hi, NP };
   }
   const ry0 = { 1: armAt(1, W.shoulderX * 1.25).ry, [-1]: armAt(-1, W.shoulderX * 1.25).ry };
+  // a top-view span taken with its neighbours across narrow gaps: the notches between fingers
+  // and toes, which a cut across the digits meets
+  const withNeighbours = (sp, s) => {
+    const g = 0.006 * H;
+    let lo = s[0], hi = s[1], grew = true;
+    while (grew) {
+      grew = false;
+      for (const [a, b] of sp) if (a < lo && b >= lo - g) { lo = a; grew = true; } else if (b > hi && a <= hi + g) { hi = b; grew = true; }
+    }
+    return [lo, hi];
+  };
   const handDepth = (x) => {
     const sp = smp.topCol(x);
     if (!sp.length) return null;
-    const s = sp.reduce((p, c) => (c[1] - c[0] > p[1] - p[0] ? c : p));
+    const s = withNeighbours(sp, sp.reduce((p, c) => (c[1] - c[0] > p[1] - p[0] ? c : p)));
     return { cz: (s[0] + s[1]) / 2, rz: (s[1] - s[0]) / 2 };
   };
   const arm = (sign, x) => {
@@ -413,7 +424,7 @@ export function makeMeasure(doc, masks, frame) {
       let cx = (fs[0] + fs[1]) / 2, w = fs[1] - fs[0];
       // the top view also holds the hands: take the shape nearest this leg
       const tr = smp.topRow(z).filter(([a, b]) => Math.abs((a + b) / 2 - legX) < 0.12 * H);
-      if (tr.length) { const t = tr.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - legX) < Math.abs((p[0] + p[1]) / 2 - legX) ? c : p)); cx = (t[0] + t[1]) / 2; w = t[1] - t[0]; }
+      if (tr.length) { const t = withNeighbours(tr, tr.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - legX) < Math.abs((p[0] + p[1]) / 2 - legX) ? c : p))); cx = (t[0] + t[1]) / 2; w = t[1] - t[0]; }
       const cs = smp.sideCol(z).filter(([a]) => a < 0.08 * H);
       const h = cs.length ? Math.max(cs[0][1], 0.012 * H) : 0.03 * H;
       return { cx, w: Math.max(w, 0.01 * H), h: Math.min(h, 0.09 * H) };
@@ -473,7 +484,7 @@ export function makeMeasure(doc, masks, frame) {
     const b = Math.max(0, Math.min(NB - 1, Math.floor(f * NB)));
     return arr.subarray(4 * b, 4 * b + 4);
   };
-  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top, profileAt };
+  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top, topMask: masks.top, profileAt };
 }
 
 // A symmetric stand-in measure with the same stations: used to find mirror pairs.
