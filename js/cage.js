@@ -847,13 +847,19 @@ export function buildCage(M, P) {
     const xk = xw + 0.45 * L; // knuckles
     const nP = mm + 2; // palm rings K0..Km (12m round), then the knuckle ring K(m+1) (18m round)
     const K = [];
-    // palm ring: flat rounded rectangle walked [palm, side, back of hand, side], starting where
-    // the wrist ring starts (palm side, the wrist ring's q = 0 corner)
+    // Palm forward: the palm faces +z, the thumb is up (+y), the little finger down. The wrist ring
+    // is walked from the corner where its palm quarter starts (front and top on the left arm,
+    // front and bottom on the right, whose rings run the other way round), so its first quarter
+    // is the palm and its third the back of the hand.
+    const q0 = sign > 0 ? 6 * mm : 2 * mm;
+    wrist = [...wrist.slice(q0), ...wrist.slice(0, q0)];
+    // palm ring: flat rounded rectangle walked [palm, side, back of hand, side] from there; across
+    // it (y) the palm's width in the front view, through it (z) the hand's thickness
     const walk = (x, counts) => {
       const sec = M.arm(sign, x);
-      const hy = Math.max(sec.ry, 0.004 * H) * Math.max(s0, 0.75), hz = Math.max(sec.rz, 0.006 * H) * Math.max(s0, 0.75);
+      const hw = Math.max(sec.ry, 0.006 * H) * Math.max(s0, 0.75), ht = Math.max(sec.rz, 0.004 * H) * Math.max(s0, 0.75);
       const pts = [];
-      const corners = [[1, -1], [-1, -1], [-1, 1], [1, 1]]; // (across, up): across +1 = the wrist ring's start side
+      const corners = [[1, -1], [-1, -1], [-1, 1], [1, 1]]; // (across, out of the palm): across +1 = the wrist ring's start side
       for (let sd = 0; sd < 4; sd++) {
         const A0 = corners[sd], A1 = corners[(sd + 1) % 4];
         for (let t = 0; t < counts[sd]; t++) {
@@ -861,7 +867,7 @@ export function buildCage(M, P) {
           let au = A0[0] + (A1[0] - A0[0]) * u, av = A0[1] + (A1[1] - A0[1]) * u;
           const l = Math.hypot(au, av) || 1; // round the corners a little
           au = au * 0.7 + (au / l) * 0.3 * Math.SQRT2 * 0.72; av = av * 0.7 + (av / l) * 0.3 * Math.SQRT2 * 0.72;
-          pts.push([sign * x, sec.cy + av * hy, sec.cz + sign * au * hz]);
+          pts.push([sign * x, sec.cy + sign * au * hw, sec.cz - av * ht]);
         }
       }
       return pts;
@@ -877,7 +883,7 @@ export function buildCage(M, P) {
     const xAt = (j) => x0 + ((xk - x0) * j) / (nP - 1);
     for (let j = 1; j < nP - 1; j++) K.push(walk(xAt(j), [4 * mm, 2 * mm, 4 * mm, 2 * mm]).map((p) => addV(p[0], p[1], p[2], 0, p[0], rref[wrist[0]] * 0.6)));
     const n12 = 12 * mm;
-    // thumb block: on the physical front (+z) side, the palm-side half, first m rows
+    // thumb block: on the thumb's side (up, +y), its palm-side half, first m rows
     const thumbC0 = sign > 0 ? 11 * mm : 4 * mm;
     for (let j = 0; j < nP - 2; j++) {
       for (let q = 0; q < n12; q++) {
@@ -914,8 +920,9 @@ export function buildCage(M, P) {
       if (rr < mm && isFinger(Math.floor(cc / mm))) continue; // finger bases
       quad(Gv(cc, rr), Gv(cc + 1, rr), Gv(cc + 1, rr + 1), Gv(cc, rr + 1), part);
     }
-    // c = 0 is the wrist ring's start side: +z (index finger) for the left hand, -z (little finger) for the right
-    const FL = [0.52, 0.56, 0.53, 0.42], FW = [0.105, 0.11, 0.1, 0.085], SPREAD = [0.035, 0.01, -0.012, -0.04];
+    // c = 0 is the wrist ring's start side: up (index finger) for the left hand, down (little
+    // finger) for the right. The fingers fan out a little in the palm's plane (y).
+    const FL = [0.52, 0.56, 0.53, 0.42], FW = [0.105, 0.11, 0.1, 0.085], SPREAD = [0.06, 0.01, -0.04, -0.08];
     const nF = Math.max(1, P.fingerRings);
     for (let fb = 0; fb < 4; fb++) {
       const b = 2 * fb; // finger blocks are the even ones
@@ -928,29 +935,29 @@ export function buildCage(M, P) {
       let bc = [0, 0, 0];
       for (const v of Lp) { const p = P3(v); bc = [bc[0] + p[0] / Lp.length, bc[1] + p[1] / Lp.length, bc[2] + p[2] / Lp.length]; }
       const len = FL[f] * L, wr = FW[f] * L * 0.5;
-      const tip = [sign * (Math.abs(bc[0]) + len), bc[1], bc[2] + SPREAD[f] * L];
+      const tip = [sign * (Math.abs(bc[0]) + len), bc[1] + SPREAD[f] * L, bc[2]];
       const hand = M.arm(sign, Math.abs(bc[0]));
-      const th = Math.min(hand.ry * 0.85, wr * 0.95);
+      const th = Math.min(hand.rz * 0.85, wr * 0.95); // thickness (z); wr is the width (y)
       const fts = knuckleRings(nF, [0.45, 0.75], 0.28);
       const fp = pathAt(bc, tip, fts.map((k) => k.t), (u) => th * (1 - 0.3 * u), (u) => wr * (1 - 0.25 * u));
-      const fr = tubeFromLoop(Lp, fp, part, { axis: 0, tip });
+      const fr = tubeFromLoop(Lp, fp, part, { axis: 0, tip, up: [0, 0, 1] });
       const fname = ['index', 'middle', 'ring', 'little'][f];
       fr.forEach((r, i) => loops.push({ name: fname + ' ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: 0 }));
       // the knuckles: the finger's root loop at the big knuckle, then the rings on the two joints
       loops.push({ name: `knuckle ${fname} 1 ${side}`, verts: Lp.slice(), station: false, axis: -1 });
       fts.forEach((k, i) => { if (k.joint) loops.push({ name: `knuckle ${fname} ${k.joint + 1} ${side}`, verts: fr[i].slice(), station: false, axis: -1 }); });
     }
-    // thumb: forward, outward and a little toward the palm
+    // thumb: up and outward from the palm's edge, a little forward (in front of the palm)
     const tl = holeLoop(K, 0, thumbC0, mm, n12);
     let tc = [0, 0, 0];
     for (const v of tl) { const p = P3(v); tc = [tc[0] + p[0] / tl.length, tc[1] + p[1] / tl.length, tc[2] + p[2] / tl.length]; }
-    const tdir = [sign * 0.55, -0.22, 0.8], tn = Math.hypot(...tdir);
+    const tdir = [sign * 0.62, 0.62, 0.3], tn = Math.hypot(...tdir);
     const tlen = 0.42 * L;
     const ttip = [tc[0] + (tdir[0] / tn) * tlen, tc[1] + (tdir[1] / tn) * tlen, tc[2] + (tdir[2] / tn) * tlen];
     const tw = 0.06 * L;
     const tts = knuckleRings(nF, [0.25, 0.62], 0.44);
     const tp = pathAt(tc, ttip, tts.map((k) => k.t), (u) => tw * (1 - 0.25 * u), (u) => tw * 1.1 * (1 - 0.2 * u));
-    const trs = tubeFromLoop(tl, tp, part, { axis: -1, tip: ttip, up: [0, 1, 0] });
+    const trs = tubeFromLoop(tl, tp, part, { axis: -1, tip: ttip, up: [0, 0, 1] });
     trs.forEach((r, i) => loops.push({ name: 'thumb ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: -1 }));
     // the thumb's root loop in the palm, then its two joints
     loops.push({ name: 'knuckle thumb 1 ' + side, verts: tl.slice(), station: false, axis: -1 });

@@ -1,6 +1,6 @@
 // Drawing -> hull masks -> calibration & stations -> cage -> dense mesh -> balloon.
 
-import { buildHullMask, buildPolygonMask, labelRegions, regionAt, regionMask } from './mask.js';
+import { buildHullMask, buildHullMaskOpenHands, buildPolygonMask, labelRegions, regionAt, regionMask } from './mask.js';
 import { Frame, autoCalibrate, autoStations, canonStations, sanitizeStations, makeMeasure, canonicalMeasure } from './stations.js';
 import { buildCage } from './cage.js';
 import { subdivide } from './subdiv.js';
@@ -21,12 +21,14 @@ export function buildMasks(doc, { gapFrac = 0.012, res = 1000 } = {}) {
     for (const p of ps) { const bb = bboxOf(p.pts); b.x0 = Math.min(b.x0, bb.x0); b.y0 = Math.min(b.y0, bb.y0); b.x1 = Math.max(b.x1, bb.x1); b.y1 = Math.max(b.y1, bb.y1); }
     const h = Math.max(b.y1 - b.y0, 1);
     const cell = h / res;
-    // top view: hands and feet are single outlines with narrow notches between the digits, which
-    // thick strokes would seal; there only the ends of open strokes are joined across gaps, and
-    // the gap is measured on the figure's height (the top view itself is only a foot or so deep)
+    // top view: the feet are single outlines with narrow notches between the toes, which thick
+    // strokes would seal; there only the ends of open strokes are joined across gaps, and the gap
+    // is measured on the figure's height (the top view itself is only a foot or so deep). Front
+    // view: the same for the hands drawn in the outline, out at the ends of the arms.
     if (view === 'front') hFig = h;
     const top = view === 'top';
-    masks[view] = buildHullMask(ps, b, { cell, gap: Math.max(gapFrac * (top && hFig ? hFig : h), cell * 0.75), ends: top });
+    const opts = { cell, gap: Math.max(gapFrac * (top && hFig ? hFig : h), cell * 0.75), ends: top };
+    masks[view] = view === 'front' ? buildHullMaskOpenHands(ps, b, opts) : buildHullMask(ps, b, opts);
     masks[view].view = view;
   }
   const sec = doc.paths.find((p) => p.view === 'side' && p.role === 'section' && p.pts.length > 2);

@@ -415,8 +415,10 @@ export function poseRotations(rig, values) {
     if (base === 'hip') rot([1, 0, 0], -(values.legFwd || 0));
     if (base === 'spine1' || base === 'spine2' || base === 'chest') rot([1, 0, 0], (values.spine || 0) / 3);
     if (base === 'neck' || base === 'head') rot([0, 1, 0], (values.head || 0) / 2);
-    if (/^(index|middle|ring|little)[123]$/.test(base)) rot([0, 0, 1], -side * (values.fingers || 0));
-    if (/^thumb[23]$/.test(base)) rot([0, 1, 0], -side * (values.fingers || 0) * 0.5);
+    // palms forward: fingers curl toward +z, about the vertical; the thumb (up, out and a little
+    // forward) curls toward the palm and across it, about the horizontal line across its root
+    if (/^(index|middle|ring|little)[123]$/.test(base)) rot([0, 1, 0], -side * (values.fingers || 0));
+    if (/^thumb[23]$/.test(base)) rot([Math.SQRT1_2, -side * Math.SQRT1_2, 0], (values.fingers || 0) * 0.5);
     if (base === 'ankle') rot([1, 0, 0], -(values.foot || 0));
     r[i] = q;
   });

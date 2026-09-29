@@ -3,15 +3,16 @@
 // top of the head, x from the centre line, z forward). Adult male and female are drawn
 // directly; the age presets are the male figure remapped through its landmark heights
 // (chin, shoulder, nipple, navel, crotch, knee, ankle, sole) with narrower bodies.
-// Output: a document with three views — T-pose front, left-facing side, and a top view
-// of the hands and feet — with roles already assigned.
+// Output: a document with three views — T-pose front (palms forward, the hands drawn in the
+// outline), left-facing side, and a top view of the feet — with roles already assigned.
 
 import { createDoc, newPath, prepareImported } from './doc.js';
 
 const U = 200; // document units per head
 // Raised whenever the reference drawings change, so saved sessions holding an older copy of a
-// reference figure are refreshed (2: hands and feet drawn as one outline each).
-export const FIGURE_VERSION = 2;
+// reference figure are refreshed (2: hands and feet drawn as one outline each; 3: palms forward,
+// the hands drawn in the front view).
+export const FIGURE_VERSION = 3;
 
 // ---------- authored outlines (head units) ----------
 // Point: [x, y] or [x, y, 'c'] for a corner. Region tags drive the age remapping.
@@ -158,16 +159,38 @@ export function buildFigure(key) {
   const armCY = B.armSection.y;
   const armY = (y) => Y(armCY) + (y - armCY) * limb;
 
+  // The hand, palm forward: in this T-pose the front view looks into the open palm, the thumb up
+  // and out, the fingers out along the arm and spread a little. It is part of the front outline:
+  // the arm's line runs up round the thumb, along every finger and back, and on along the arm's
+  // underside. Frame: u from the wrist to the middle fingertip, v up (toward the thumb), both in
+  // hand lengths. The gaps between the fingers stay open (from a little past the webs, about 5 mm
+  // on an adult) so the front view's outline keeps them apart; the detail pass splits the outline
+  // into digits at those notches (digits.js).
+  const xw = armX(B.armX[2]), xt = armX(B.armX[3]), Lh = xt - xw;
+  const yc = armY(armCY);
+  const wristSt = B.arm.find(([x]) => x >= B.armX[2]);
+  const wt = (yc - armY(wristSt[1])) / Lh, wb = (armY(wristSt[2]) - yc) / Lh; // wrist, above and below the axis
+  // walked from the little finger's side at the wrist to the thumb's side (as a plan of the hand)
+  const hand = [[0.16, -wb - 0.035], [0.33, -0.224], [0.47, -0.228], [0.52, -0.224]];
+  // fingers little -> index: base centre (at the web), angle (toward the thumb), web-to-tip length,
+  // width at base and tip. Gaps of 0.03 hand lengths at the webs, about 0.07 at the tips.
+  hand.push(...digitRow([[[0.55, -0.187], -0.2, 0.3, 0.074, 0.064], [[0.585, -0.076], -0.08, 0.38, 0.088, 0.077],
+    [[0.6, 0.045], 0.0, 0.4, 0.094, 0.083], [[0.585, 0.167], 0.09, 0.37, 0.09, 0.078]], 0.012));
+  // index side of the palm, the web to the thumb, the thumb (seen from its side), the thenar
+  hand.push([0.52, 0.212], [0.4, 0.196]);
+  hand.push(...digit([0.32, 0.258], [0.72, 0.694], 0.27, 0.135, 0.1, false, false));
+  hand.push([0.13, wt + 0.07]);
+  const handPts = hand.reverse().map(([u, v]) => [xw + u * Lh, yc - v * Lh]);
+
   // front outline, right half
   const half = [];
   for (const p of B.frontHead) half.push([p[0], p[1], p[2]]);
   for (const p of B.frontNeck) half.push([p[0] * (0.6 + 0.4 * body), Y(p[1]), p[2]]);
   for (const p of B.frontShoulder) half.push([bodyX(p[0], p[1]), Y(p[1]), p[2]]);
-  const arm = B.arm;
+  // the arm up to the wrist (its stations beyond are the old palm-down hand, seen edge-on)
+  const arm = B.arm.filter(([x]) => x <= B.armX[2]);
   for (const [x, top] of arm) half.push([armX(x), armY(top)]);
-  half.push([armX(B.armTip[0]) - 0.02, armY(B.armTip[1]) - 0.035 * limb]);
-  half.push([armX(B.armTip[0]), armY(B.armTip[1])]);
-  half.push([armX(B.armTip[0]) - 0.025, armY(B.armTip[1]) + 0.035 * limb]);
+  half.push(...handPts);
   for (let i = arm.length - 1; i >= 1; i--) half.push([armX(arm[i][0]), armY(arm[i][2])]);
   half.push([bodyX(B.armpit[0], B.armpit[1]), Y(B.armpit[1]), 'c']);
   for (const p of B.frontTorso) half.push([bodyX(p[0], p[1]), Y(p[1]), p[2]]);
@@ -180,25 +203,10 @@ export function buildFigure(key) {
   const side = [...B.sideFront, ...B.sideBack].map((p) => [sideZ(p[0], p[1]), Y(p[1]), p[2]]);
   const sec = B.armSection;
 
-  // top view: each hand and each foot is one continuous outline, as an artist draws it. The line
-  // runs up and down every finger and toe, with a narrow notch between neighbours (open toward
-  // the tips) so each digit keeps its own space to inflate into; the detail pass splits the
-  // outline into digits at those notches (digits.js).
-  const xw = armX(B.armX[2]), xt = armX(B.armX[3]), Lh = xt - xw;
-  const hz = sec.z * body;
-  // hand in its own frame: u from the wrist to the middle fingertip, v across toward the thumb
-  // (forward, +z); both in hand lengths. The wrist keeps the forearm's width.
-  const H_ = (u, v, c) => [xw + u * Lh, hz + v * Lh, c];
-  const wu = (0.14 * limb) / Lh, wr = (0.13 * limb) / Lh;
-  const hand = [[0, -wu, 'c'], [0.16, -0.5 * wu - 0.11], [0.33, -0.224], [0.47, -0.218], [0.53, -0.205]];
-  // fingers little -> index: base centre (at the web), angle (toward the thumb), web-to-tip length, width at base and tip
-  hand.push(...digitRow([[[0.565, -0.1585], -0.1, 0.3, 0.084, 0.07], [[0.59, -0.062], -0.04, 0.38, 0.097, 0.082],
-    [[0.6, 0.0445], 0, 0.4, 0.104, 0.088], [[0.585, 0.1525], 0.05, 0.37, 0.1, 0.085]], 0.006));
-  // index side of the palm, the web to the thumb, the thumb (seen from its side), the thenar, the wrist
-  hand.push([0.52, 0.212], [0.44, 0.226]);
-  hand.push(...digit([0.3, 0.285], [0.78, 0.625], 0.25, 0.15, 0.108, false, false));
-  hand.push([0.13, 0.29], [0, wr, 'c']);
-  const handPts = hand.map(([u, v, c]) => H_(u, v, c));
+  // top view: the feet only (the hands are in the front view). Each foot is one continuous
+  // outline, as an artist draws it: the line runs up and down every toe, with a narrow notch
+  // between neighbours (open toward the tips) so each toe keeps its own space to inflate into; the
+  // detail pass splits the outline into toes at those notches (digits.js).
   // left foot: x out (lateral), z forward. Heel, the outer edge, five toes from the little one in,
   // the ball and the inner edge with a shallow arch. Toes are laid out as (z, x): along, across.
   const fb = body * (B.foot || 1);
@@ -225,10 +233,7 @@ export function buildFigure(key) {
   }
   P(secPts, true, { role: 'section', view: 'side', color: '#0e7d89', part: 'arm' });
   const plan = (pts, s) => catmull(pts.map(([x, z, c]) => [FX + s * x * U, TZ + z * U, c]), true, 6);
-  for (const s of [1, -1]) {
-    P(plan(handPts, s), true, { role: 'line', view: 'top' });
-    P(plan(footPts, s), true, { role: 'line', view: 'top' });
-  }
+  for (const s of [1, -1]) P(plan(footPts, s), true, { role: 'line', view: 'top' });
   // face features in the front view and the profile (head units stay the same at every age)
   const faceCol = '#b0587a', fopt = { role: 'feature', color: faceCol, group: 'face' };
   const hx = (x) => FX + x * U, hy = (y) => y * U;

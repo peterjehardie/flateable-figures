@@ -322,22 +322,42 @@ export function makeMeasure(doc, masks, frame) {
     const [c, d] = sd || [-0.04 * H, 0.04 * H];
     return { cx: (a + b) / 2, rx: Math.max((b - a) / 2, 0.008 * H), cz: (c + d) / 2, rz: Math.max((d - c) / 2, 0.008 * H) };
   };
-  // arm axis table: centre height and half thickness along x
+  // a span taken with its neighbours across narrow gaps: the notches between fingers and toes,
+  // which a cut across the digits meets
+  const withNeighbours = (sp, s, g = 0.006 * H) => {
+    let lo = s[0], hi = s[1], grew = true;
+    while (grew) {
+      grew = false;
+      for (const [a, b] of sp) if (a < lo && b >= lo - g) { lo = a; grew = true; } else if (b > hi && a <= hi + g) { hi = b; grew = true; }
+    }
+    return [lo, hi];
+  };
+  const nearest = (sp, y) => sp.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - y) < Math.abs((p[0] + p[1]) / 2 - y) ? c : p));
+  // arm axis table: centre height and half thickness along x. Past the wrist it is the hand (palm
+  // forward, drawn in the front view), measured round the wrist's centre line: the palm, and the
+  // fingers taken together across the gaps between them, but not the thumb. Near the wrist the
+  // thumb's root is part of the same column, so up to the middle of the hand (where the thumb has
+  // come away) the palm's top edge is kept under the line from the wrist's top to the palm's there.
   const armTable = {};
   for (const sign of [1, -1]) {
     const rows = [];
-    let expY = (W.armpit + W.shoulder) / 2;
-    const n = 64;
+    let expY = (W.armpit + W.shoulder) / 2, wrist = null, palm = null;
+    const n = 64, xR = W.wristX + 0.5 * (W.tipX - W.wristX);
     for (let i = 0; i <= n; i++) {
-      const x = sign * (W.shoulderX + ((W.tipX - W.shoulderX) * i) / n);
-      const sp = smp.frontCol(x);
+      const ax = W.shoulderX + ((W.tipX - W.shoulderX) * i) / n;
+      const sp = smp.frontCol(sign * ax);
       let s = null;
-      if (sp.length) s = sp.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - expY) < Math.abs((p[0] + p[1]) / 2 - expY) ? c : p));
+      if (ax > W.wristX && wrist) {
+        if (!palm) { const pr = smp.frontCol(sign * xR); palm = pr.length ? nearest(pr, wrist.cy) : [wrist.cy - wrist.ry, wrist.cy + wrist.ry]; }
+        if (sp.length) s = withNeighbours(sp, nearest(sp, wrist.cy), 0.012 * H);
+        if (s && ax < xR) s = [s[0], Math.min(s[1], wrist.cy + wrist.ry + ((palm[1] - wrist.cy - wrist.ry) * (ax - W.wristX)) / (xR - W.wristX))];
+      } else if (sp.length) s = nearest(sp, expY);
       if (s && s[1] - s[0] > 0.2 * H) s = [expY - 0.03 * H, expY + 0.03 * H]; // column hit the torso: fall back
       const cy = s ? (s[0] + s[1]) / 2 : expY;
       const ry = s ? Math.max((s[1] - s[0]) / 2, 0.004 * H) : rows.length ? rows[rows.length - 1].ry : 0.03 * H;
-      rows.push({ x: Math.abs(x), cy, ry, cz: 0 });
+      rows.push({ x: ax, cy, ry, cz: 0 });
       expY = cy;
+      if (ax <= W.wristX) wrist = { cy, ry };
     }
     armTable[sign] = rows;
   }
@@ -376,28 +396,25 @@ export function makeMeasure(doc, masks, frame) {
     section = { cz, cy, rz: (hi[NP / 2] - lo[NP / 2]) / 2, ry: m.hh * frame.S.s, lo, hi, NP };
   }
   const ry0 = { 1: armAt(1, W.shoulderX * 1.25).ry, [-1]: armAt(-1, W.shoulderX * 1.25).ry };
-  // a top-view span taken with its neighbours across narrow gaps: the notches between fingers
-  // and toes, which a cut across the digits meets
-  const withNeighbours = (sp, s) => {
-    const g = 0.006 * H;
-    let lo = s[0], hi = s[1], grew = true;
-    while (grew) {
-      grew = false;
-      for (const [a, b] of sp) if (a < lo && b >= lo - g) { lo = a; grew = true; } else if (b > hi && a <= hi + g) { hi = b; grew = true; }
-    }
-    return [lo, hi];
-  };
-  const handDepth = (x) => {
-    const sp = smp.topCol(x);
-    if (!sp.length) return null;
-    const s = withNeighbours(sp, sp.reduce((p, c) => (c[1] - c[0] > p[1] - p[0] ? c : p)));
-    return { cz: (s[0] + s[1]) / 2, rz: (s[1] - s[0]) / 2 };
+  // Hand thickness (z): no view shows it well (the side view sees the T-pose hand end-on, behind
+  // the arm's section and over the chest), so it is a default profile along the hand, in hand
+  // lengths L from the wrist: from the forearm's own depth at the wrist to the heel of the hand
+  // (about 3 cm thick on an adult), the knuckles (2.3 cm), the fingers (1.7 cm, thinning to the tips).
+  const HAND_RZ = [[0.2, 0.075], [0.5, 0.058], [0.6, 0.045], [1, 0.035]];
+  const handDepth = (ax, rzW) => {
+    const L = W.tipX - W.wristX, u = (ax - W.wristX) / L;
+    if (u <= HAND_RZ[0][0]) { const t = u / HAND_RZ[0][0], s = t * t * (3 - 2 * t); return rzW + (HAND_RZ[0][1] * L - rzW) * s; }
+    let k = 1;
+    while (k < HAND_RZ.length - 1 && u > HAND_RZ[k][0]) k++;
+    const [u0, r0] = HAND_RZ[k - 1], [u1, r1] = HAND_RZ[k], t = clamp((u - u0) / (u1 - u0), 0, 1);
+    return (r0 + (r1 - r0) * t) * L;
   };
   const arm = (sign, x) => {
     const a = armAt(sign, x);
-    if (masks.top && Math.abs(x) > W.wristX) {
-      const h = handDepth(sign * Math.abs(x));
-      if (h) return { cy: a.cy, ry: a.ry, cz: h.cz, rz: h.rz };
+    if (Math.abs(x) > W.wristX) {
+      // the hand: centred on the forearm's depth at the wrist
+      const wr = arm(sign, W.wristX);
+      return { cy: a.cy, ry: a.ry, cz: wr.cz, rz: handDepth(Math.abs(x), wr.rz) };
     }
     if (section) {
       // true depth at the shoulder, tapering with the arm's thickness in the front view
@@ -422,7 +439,7 @@ export function makeMeasure(doc, masks, frame) {
     const fs = fr.length ? fr.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - legX) < Math.abs((p[0] + p[1]) / 2 - legX) ? c : p)) : [legX - 0.03 * H, legX + 0.03 * H];
     const at = (z) => {
       let cx = (fs[0] + fs[1]) / 2, w = fs[1] - fs[0];
-      // the top view also holds the hands: take the shape nearest this leg
+      // both feet are in the top view: take the shape nearest this leg
       const tr = smp.topRow(z).filter(([a, b]) => Math.abs((a + b) / 2 - legX) < 0.12 * H);
       if (tr.length) { const t = withNeighbours(tr, tr.reduce((p, c) => (Math.abs((c[0] + c[1]) / 2 - legX) < Math.abs((p[0] + p[1]) / 2 - legX) ? c : p))); cx = (t[0] + t[1]) / 2; w = t[1] - t[0]; }
       const cs = smp.sideCol(z).filter(([a]) => a < 0.08 * H);
@@ -484,7 +501,7 @@ export function makeMeasure(doc, masks, frame) {
     const b = Math.max(0, Math.min(NB - 1, Math.floor(f * NB)));
     return arr.subarray(4 * b, 4 * b + 4);
   };
-  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top, topMask: masks.top, profileAt };
+  return { H, W, trunk, leg, arm, armAt, armDepthLimits, foot, section, ry0, samplers: smp, hasTop: !!masks.top, topMask: masks.top, frontMask: masks.front, profileAt };
 }
 
 // A symmetric stand-in measure with the same stations: used to find mirror pairs.
