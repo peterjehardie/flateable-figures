@@ -202,6 +202,14 @@ function applyShading() {
 
 // ---------------- main loop ----------------
 let frameNo = 0, lastFit = 0;
+// Settled also when movement has stopped getting smaller: a dense mesh keeps a small shimmer
+// above the threshold (spread thin over the whole body), and would otherwise never stop.
+const plat = { best: Infinity, at: 0 };
+function plateau(sim) {
+  if (sim.iter < 60) { plat.best = Infinity; plat.at = sim.iter; return false; }
+  if (sim.lastMove < 0.9 * plat.best) { plat.best = sim.lastMove; plat.at = sim.iter; }
+  return (sim.iter > 600 && sim.iter - plat.at > 150 && sim.lastMove < 1e-4) || sim.iter > 2500;
+}
 function loop(t) {
   requestAnimationFrame(loop);
   const sim = app.sim;
@@ -215,7 +223,7 @@ function loop(t) {
       const d = sim.detail;
       if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); refreshAnatomy(); if (app.rigPanel) app.rigPanel.onSettled(); } }
       else app.stillFrames = 0;
-    } else if (sim.lastMove < 2.5e-5 && sim.iter > 60) {
+    } else if ((sim.lastMove < 2.5e-5 && sim.iter > 60) || plateau(sim)) {
       if (++app.stillFrames > 30) {
         app.stillFrames = 0;
         if (app.prm.faceDetail && (app.face || app.digits)) { sim.startDetail(app.face, app.digits); goStep('refine', 'inflate'); toast('Body settled: now working the face, hands and feet in finer steps'); }

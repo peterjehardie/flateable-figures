@@ -124,3 +124,31 @@ _Non-binding exploration log. Records what was tried and why it was dropped. Not
 - Calmer defaults: no mesh loops on the drawing, no cage edges or drawings in 3D. The fit colours only appear once inflation has started (before, they tinted everything blue).
 - Feature group cards fold their settings. "Pressure/tension" are relabelled "puff out/flatten".
 - Checked in light and dark themes, through the whole flow.
+
+## 2026-09-29 — one-line hands and feet, anatomical loops, split sheet, anatomy coverage
+
+- **Hands and feet** (sub-agent): each hand and each foot in the top view is one continuous outline.
+  - Digits are found from the traced top-view mask: notches from dents in the convex hull plus narrow slots; the deepest k−1 are kept.
+  - The top view no longer thickens strokes (that sealed the gaps between fingers); it joins only the loose ends of open strokes.
+  - 20/20 digits on every preset.
+  - Female feet used the male foot, longer than her side view; now 0.9 of it.
+  - Dropped: hull dents alone (merged two toes); the first finger loop at the web (pinched neck).
+  - Left: toe-web crease; thumb built at 55° against a drawn 38°.
+- **Anatomical loops** (sub-agent):
+  - A "lens" tool adds a loop round a stretch of an existing loop; ending on an ordinary vertex it gives a 3/5 crease pair, ending on a 5-pole it moves the pole.
+  - Shoulder: armpit poles moved onto chest and shoulder blade; deltoid ring leaning in.
+  - Hip: joint loop, tilted thigh-top ring, groin and buttock-fold lenses.
+  - Elbow, knee and kneecap crease lenses; face jaw, nasolabial, brow, nose and ear insets; finger rings on the knuckles.
+  - Head rings renamed: nose → nostrils, brow → forehead.
+  - Bend test at N=16: elbow flips 12 → 0; legs-forward flips 0 → 6 (all on the right, where the fitted rig is itself off its mirror by up to 6.5 mm).
+  - Chest, shoulder-blade and collarbone loops are traced along existing edges, not new geometry.
+  - Dropped: narrowing the joint bands on the inside (squashed the crease); several groin shapes (padded the thigh, because denser patches bulge under pressure).
+- **Split front sheet:** front of the body on the page right, back seen from behind on the left, both showing the figure's +x side; shared symmetric outline. Features drawn on the left half go to the back (stored mirrored). Whole Front / Back remain for one-sided features.
+- **Partial erase:** the eraser cuts only what is under it; the twin loses the mirrored part.
+- **Anatomy:**
+  - Every quad gets a region, from part, height against stations, angle round its own axis, and face and digit loops. Every loop gets an anatomical role.
+  - Anatomy colouring, with the region name on hover.
+  - Coverage checklist of 23 items, and region density against the body average.
+  - Before the loops merge: 41%. After: 100% by name, but the torso is still 0.15–0.4× density while the face and hands are 3–25×. The checklist only tests that names exist, not loop quality.
+- **Settling:** with the extra loops, the body kept a spread-out shimmer of about 3e-5 H per step above the 2.5e-5 stop line and never stopped. It now also stops when movement has not improved for 150 steps after 600 (cap 2500). Full flow in the test browser: 58 s.
+- The agent committed the sub-agents' worktree folders as embedded repositories by mistake, then untracked them and excluded that folder locally.
