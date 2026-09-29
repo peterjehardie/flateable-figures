@@ -75,6 +75,9 @@ export function computeSlots(model, sim) {
       const L = Math.max(best, 0.01 * H);
       const at = (t) => [c1[0] + d[0] * t, c1[1] + d[1] * t, c1[2] + d[2] * t];
       const pts = f === 'thumb' ? [at(-0.9 * L), at(-0.15 * L), at(0.45 * L), at(L)] : (() => { const b = -0.45 * L, F = L - b; return [at(b), at(b + 0.45 * F), at(b + 0.75 * F), at(L)]; })();
+      // the cage's knuckle loops, where it has them, are the joints (the thumb's first one is its
+      // root in the palm: its base joint stays deeper, where the proportions put it)
+      for (let k = f === 'thumb' ? 2 : 1; k <= 3; k++) { const kl = loopBy(`knuckle ${f} ${k} ${S}`); if (kl) pts[k - 1] = stat(kl).c; }
       pts.forEach((p, k) => (out[`${f}${k + 1} ${S}`] = p));
     }
     const lp = M.profileAt(s, W.crotch - 0.02 * H);

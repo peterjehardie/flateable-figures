@@ -11,6 +11,17 @@
 // - hands, feet, head: a x a grid caps.
 // Poles (vertices with 3 or 5 edges) therefore sit at the armpit/shoulder corners,
 // at both ends of the crotch chain, and at the cap corners.
+//
+// On top of that, loops for bending, each named by its anatomy (see `lens` below for the tool):
+// - shoulder: a deltoid ring leaning over the shoulder cap; a lens along the bottom of the arm
+//   hole moves its two lower corner poles off the armpit onto the chest and the shoulder blade;
+//   pectoral, scapula and clavicle loops name the regions round it
+// - hip: the hip-joint loop, a ring at the top of the thigh tilted up at the outside, lenses for
+//   the groin and the gluteal fold
+// - elbow and knee: a crease lens on the inside (3/5 pole pairs at its ends), bands leaning away
+//   from the joint there; a lens round the kneecap
+// - face: jaw, nasolabial, brow, nose and ear loops as insets; finger and thumb rings on the
+//   knuckles
 
 export const PARTS = [
   { name: 'pelvis', color: '#7c8db5' }, { name: 'abdomen', color: '#93a8c9' }, { name: 'chest', color: '#6f86b0' },
@@ -182,6 +193,29 @@ export function buildCage(M, P) {
     }
     return rings;
   };
+  // rings at given fractions t along a -> b
+  const pathAt = (a, b, ts, raFn, rbFn) => {
+    const d0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const L = Math.hypot(...d0) || 1, d = d0.map((x) => x / L);
+    return ts.map((t) => ({ c: lerp3(a, b, t), d, ra: raFn(t), rb: rbFn(t) }));
+  };
+  // Where a digit's n rings go, as fractions of its length from its root: on its two joints first
+  // (fingers: the middle and end knuckles at 0.45 and 0.75, the phalanges being about 0.45 / 0.3 /
+  // 0.25 of the finger), then one at `lead` (the first ring: the detail pass lays the digit out
+  // from there), then bands either side of the joints so they can bend. { t, joint: 1 | 2 | 0 }
+  const knuckleRings = (n, [j1, j2], lead) => {
+    const cand = [{ t: j1, joint: 1 }, { t: j2, joint: 2 }, { t: lead, joint: 0 },
+      { t: j1 - 0.06, joint: 0 }, { t: j1 + 0.06, joint: 0 }, { t: j2 - 0.05, joint: 0 }, { t: j2 + 0.05, joint: 0 }];
+    const out = cand.slice(0, Math.min(n, cand.length));
+    // more rings than that: halve the longest gaps
+    while (out.length < n) {
+      const ts = [0, ...out.map((k) => k.t).sort((p, q) => p - q), 0.9];
+      let g = 0;
+      for (let i = 1; i < ts.length - 1; i++) if (ts[i + 1] - ts[i] > ts[g + 1] - ts[g]) g = i;
+      out.push({ t: (ts[g] + ts[g + 1]) / 2, joint: 0 });
+    }
+    return out.sort((p, q) => p.t - q.t);
+  };
   const pathBetween = (a, b, count, raFn, rbFn, from = 0, to = 1) => {
     const d0 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     const L = Math.hypot(...d0) || 1, d = d0.map((x) => x / L);
@@ -287,6 +321,101 @@ export function buildCage(M, P) {
     }
   };
 
+  // ---------------- local rewrites (loops for bending) ----------------
+  // Faces are found by their corners: small scans, the cage has a few thousand quads.
+  const faceHas = (f, v) => quads[4 * f] === v || quads[4 * f + 1] === v || quads[4 * f + 2] === v || quads[4 * f + 3] === v;
+  const facesWith = (...vs) => { const out = []; for (let f = 0; f < quads.length / 4; f++) if (vs.every((v) => faceHas(f, v))) out.push(f); return out; };
+  // a face's corners in order round it, starting at v
+  const cornersFrom = (f, v) => { const q = quads.slice(4 * f, 4 * f + 4), i = q.indexOf(v); return [q[i], q[(i + 1) % 4], q[(i + 2) % 4], q[(i + 3) % 4]]; };
+  const setQuad = (f, q) => { for (let i = 0; i < 4; i++) quads[4 * f + i] = q[i]; };
+  // a new vertex part way along an edge; it keeps an anchor only when both ends share one
+  const onEdge = (u, w, t = 0.5) => {
+    const p = lerp3(P3(u), P3(w), t);
+    const ax = anchorAxis[u] >= 0 && anchorAxis[u] === anchorAxis[w] ? anchorAxis[u] : -1;
+    return addV(p[0], p[1], p[2], ax, ax >= 0 ? anchorVal[u] + (anchorVal[w] - anchorVal[u]) * t : 0, rref[u] + (rref[w] - rref[u]) * t);
+  };
+
+  // A lens: a new loop round a run of edges S = s0 .. sk of an existing loop, made by cutting the
+  // quads on both sides of the run lengthwise (the rungs s_i - a_i on side A and s_i - b_i on side B
+  // are split). How each end of the run closes depends on the vertex there:
+  //  - a plain vertex (4 edges): the new loop turns round it. The vertex just beyond the run becomes
+  //    a 5-pole and the run's end a 3-pole (two quads into three, as in refineInside). On a crease
+  //    this is the short extra loop pair a modeller adds on the inside of a joint: the inside gets
+  //    three loops where the outside has one, so it can fold while the outside keeps its volume.
+  //  - a 5-pole: its other three quads are cut again into four; the end becomes a plain vertex and
+  //    the pole moves one step diagonally away from the run, onto the quad between the lines that
+  //    met there. The loops either side of the run then carry on along those lines. This is how
+  //    poles are moved off a place that folds (the corners of the arm hole in the armpit).
+  // Loops that ran along S go round side A or side B instead (via(name) picks, for plain ends; at
+  // a pole end the line they came in on decides); loops across the rungs pick up the midpoints.
+  // Returns the new loop (closed only when both ends are plain), or null when an end has more
+  // than 5 edges (nothing is changed then).
+  const lens = (S, A, B, { tA = 0.5, tB = 0.5, via = () => 'A' } = {}) => {
+    const k = S.length - 1;
+    if (k < 1) return null;
+    for (const e of [0, k]) { const nf = facesWith(S[e]).length; if (nf !== 4 && nf !== 5) return null; }
+    const mA = S.map((s, i) => onEdge(s, A[i], tA)), mB = S.map((s, i) => onEdge(s, B[i], tB));
+    for (let i = 0; i < k; i++) for (const [R, m] of [[A, mA], [B, mB]]) {
+      const [f] = facesWith(S[i], S[i + 1], R[i], R[i + 1]);
+      const part = fpart[f];
+      setQuad(f, [S[i], S[i + 1], m[i + 1], m[i]]);
+      quad(m[i], m[i + 1], R[i + 1], R[i], part);
+    }
+    const ends = [0, k].map((e) => {
+      const s = S[e], a0 = A[e], b0 = B[e], ma = mA[e], mb = mB[e];
+      // the side quads are cut already: only the quads beyond the run still hold the rungs whole
+      const [X] = facesWith(s, a0), [Z] = facesWith(s, b0);
+      const x = cornersFrom(X, s), z = cornersFrom(Z, s);
+      const e1 = x[1] === a0 ? x[3] : x[1], x1 = x[2];
+      const e2 = z[1] === b0 ? z[3] : z[1], z1 = z[2];
+      if (e1 === e2) { // plain: X and Z share the edge s - o, which goes
+        setQuad(X, [x1, e1, ma, a0]);
+        setQuad(Z, [e1, z1, b0, mb]);
+        // (the new quad takes side B's part: at the groin side A is trunk and side B leg, and as a
+        // trunk quad it would put mb under the trunk's constraints below the crotch: a shelf)
+        quad(e1, mb, s, ma, fpart[Z]);
+        return { plain: true, o: e1 };
+      }
+      const [Y] = facesWith(s, e1, e2);
+      const y1 = cornersFrom(Y, s)[2];
+      setQuad(X, [ma, a0, x1, e1]);
+      setQuad(Z, [e2, z1, b0, mb]);
+      setQuad(Y, [s, ma, e1, y1]);
+      quad(y1, e2, mb, s, fpart[Y]);
+      return { plain: false, e1, e2, pole: y1 };
+    });
+    const key = (u, w) => (u < w ? u * 2097152 + w : w * 2097152 + u);
+    const rung = new Map();
+    S.forEach((s, i) => { rung.set(key(s, A[i]), mA[i]); rung.set(key(s, B[i]), mB[i]); });
+    for (const L of loops) {
+      const v = L.verts, n = v.length;
+      // along the run (either way round): send it round one side
+      for (let i = 0; i < n; i++) {
+        if (v[i] !== S[0]) continue;
+        const dir = v[(i + 1) % n] === S[1] ? 1 : v[(i - 1 + n) % n] === S[1] ? -1 : 0;
+        const at = (j) => (((i + dir * j) % n) + n) % n;
+        if (!dir || !S.every((s, j) => v[at(j)] === s)) continue;
+        const nb = [v[at(-1)], v[at(k + 1)]];
+        const sides = ends.map((en, j) => (en.plain ? (nb[j] === en.o ? via(L.name) : null) : nb[j] === en.e1 ? 'A' : nb[j] === en.e2 ? 'B' : null));
+        const fixed = ends.map((en, j) => (en.plain ? null : sides[j])).filter(Boolean);
+        if (sides.some((sd) => !sd) || (fixed.length === 2 && fixed[0] !== fixed[1])) break;
+        const m = (fixed[0] || sides[0]) === 'A' ? mA : mB;
+        S.forEach((_, j) => (v[at(j)] = m[j]));
+        break;
+      }
+      // across a rung: through its midpoint
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        out.push(v[i]);
+        const mid = rung.get(key(v[i], v[(i + 1) % n]));
+        if (mid !== undefined) out.push(mid);
+      }
+      L.verts = out;
+    }
+    if (!ends[0].plain || !ends[1].plain) return { ends, mA, mB };
+    return { ends, mA, mB, loop: [ends[0].o, ...mA, ends[1].o, ...mB.slice().reverse()] };
+  };
+
   // ---------------- trunk ----------------
   const k = P.rings;
   const yBottom = W.crotch + 0.012 * H;
@@ -304,7 +433,9 @@ export function buildCage(M, P) {
     trunkYs = trunkYs.filter((r) => r.name !== 'crown');
     headRow0 = trunkYs.length - 1; // the chin ring
     const hh = H - W.chin;
-    const names = ['mouth low', 'mouth high', 'nose', 'eye low', 'eye high', 'brow', 'crown'];
+    // (the rings at the nostrils and the brows are not called 'nose' and 'brow': those names are
+    // the loops round the nose and over the brows, below)
+    const names = ['mouth low', 'mouth high', 'nostrils', 'eye low', 'eye high', 'forehead', 'crown'];
     [0.13, 0.27, 0.37, 0.46, 0.57, 0.68, 0.8].forEach((f, i) => trunkYs.push({ v: W.chin + f * hh, name: names[i], station: i === 3 }));
   }
   const jA = trunkYs.findIndex((r) => r.name === 'armpit' && r.station);
@@ -341,16 +472,40 @@ export function buildCage(M, P) {
     const wide = (sg) => Array.from({ length: nf + 1 }, (_, q) => (sg > 0 ? q : N - 1 - q));
     for (const j of rowsFace) for (const i of [...wide(1), ...wide(-1)]) block.push(faceIds[j][i]);
     const faceRing = inset(block, 0.12, 4, 'face');
+    // Loops a modeller puts on a face, as insets inside the face loop. Where two insets' corners
+    // meet, the order matters: a corner of one on the inside corner of the other (a 3-pole) cancels
+    // to a plain vertex, two outside corners together would make a 6-pole. Each placement below
+    // was checked for that at N = 8, 16 and 24.
+    const rowF = (r, cols) => cols.map((i) => faceIds[headRow0 + r][i]);
+    const rowsF = (r0, r1, cols) => { const out = []; for (let r = r0; r < r1; r++) out.push(...rowF(r, cols)); return out; };
+    const mid2 = [...front(1), ...front(-1)]; // the columns either side of the centre, nf each
+    //  - jaw: the lower face, cheek to cheek, from the chin up to the nostrils: it runs along the jaw
+    //    line and closes under the nose. Its lower corners sit on the face loop's inside corners
+    //    and cancel them, so the jaw line goes round the chin with no poles.
+    inset(rowsF(FACE.faceLo, FACE.mouthHi + 1, [...wide(1), ...wide(-1)]), 0.06, 4, 'jaw');
+    //  - nasolabial: round the mouth, from under the nose wings down past the mouth's corners to
+    //    the chin, with a row of quads below the mouth (the mouth loops need that room when they
+    //    are pulled onto the drawn mouth)
+    inset(rowsF(FACE.faceLo, FACE.mouthHi + 1, mid2), 0.1, 4, 'nasolabial');
+    const mouth = [faceIds[headRow0 + FACE.mouthLo][0], faceIds[headRow0 + FACE.mouthLo][N - 1]];
+    inset(mouth, 0.25, 4, 'mouth');
+    inset(mouth, 0.35, 4, 'lips');
+    //  - brow: over both eyes and the bridge of the nose, from under the eyes up to the brows; the
+    //    eyes' outer lower corners land on its inside corners (they cancel, as for the jaw)
+    inset(rowsF(FACE.eyeLo, FACE.eyeHi + 1, mid2), 0.12, 4, 'brow');
     // eyes need a face of their own each side with the nose bridge between (16+ round)
     if (N >= 16) for (const sg of [1, -1]) {
       const eye = [faceIds[headRow0 + FACE.eyeLo][front(sg)[nf - 1]]];
       inset(eye, 0.3, 4, 'eye ' + (sg > 0 ? 'L' : 'R'));
       inset(eye, 0.35, 4, 'eyelid ' + (sg > 0 ? 'L' : 'R'));
     }
-    const mouth = [faceIds[headRow0 + FACE.mouthLo][0], faceIds[headRow0 + FACE.mouthLo][N - 1]];
-    inset(mouth, 0.25, 4, 'mouth');
-    inset(mouth, 0.35, 4, 'lips');
+    //  - nose: the two centre faces between the jaw loop and the brow loop (at N = 8 its corners
+    //    would fall on the brow loop's corners: 6-poles, so none there)
+    if (N >= 16) inset(rowF(FACE.mouthHi + 1, [0, N - 1]), 0.2, 4, 'nose');
     if (P.faceRefine) refineInside(faceRing, block);
+    //  - ears: on the sides of the head, from the nostrils to the eyes, outside the face loop (at
+    //    N = 8 they would touch it, where refineInside left 5-poles: none there)
+    if (N >= 16) for (const sg of [1, -1]) inset(rowF(FACE.mouthHi + 1, [sg > 0 ? N / 4 : (3 * N) / 4 - 1]).concat(rowF(FACE.eyeLo, [sg > 0 ? N / 4 : (3 * N) / 4 - 1])), 0.2, 4, 'ear ' + (sg > 0 ? 'L' : 'R'));
   }
   trunkYs.forEach((r, j) => {
     if (j > jA && j < jA + a) return;
@@ -412,6 +567,60 @@ export function buildCage(M, P) {
       }
     }
     legYs.forEach((r, j) => loops.push({ name: (r.name || 'leg ' + j) + ' ' + side, verts: rings[j + 1].slice(), station: !!r.station, axis: 1 }));
+    // Hip. The leg's first loop (the trunk's bottom ring and the crotch chain) is the loop round
+    // the hip joint. The ring below it, at the top of the thigh, is tilted: high on the outside
+    // toward the hip bone, low on the inside by the crotch. (Tilting the hip-joint loop itself the
+    // same way, up at the sides, turned quads over in the groin with the legs forward.)
+    loops.push({ name: 'hip joint ' + side, verts: rings[0].slice(), station: false, axis: -1 });
+    const outward = (q) => sign * Math.sin((sign > 0 ? 0 : Math.PI) + (2 * Math.PI * q) / N);
+    const back = (q) => -Math.cos((sign > 0 ? 0 : Math.PI) + (2 * Math.PI * q) / N);
+    const tU = 0.3 * (W.crotch - ringY[1]);
+    rings[1].forEach((v, q) => { const y = ringY[1] + tU * outward(q); pos[3 * v + 1] = y; anchorVal[v] = y; });
+    // Groin: a lens along the front of the hip-joint loop, from beside the crotch out toward the
+    // hip bone: the crease that folds when the leg comes forward. (Its ends keep off the crotch's
+    // front vertex, which already has 6 edges.) Its shape is a compromise found by trying: the
+    // balloon's pressure is the same push per vertex, so a denser patch inflates further and a
+    // lens reaching the side of the hip, or with its thigh-side loop far from the crease, leaves a
+    // pad on the front of the thigh; loops close to the crease on both sides leave quads so thin
+    // that the legs-forward test turns them over. Stopping short of the side, with the loop 0.7 of
+    // the way up the belly and 0.35 down the thigh, keeps the thigh's shape as it was.
+    if (N / 4 - 1 >= 3) {
+      const S = [], A = [], B = [];
+      for (let i = 2; i <= N / 4 - 1; i++) {
+        const ti = sign > 0 ? i : N - i;
+        S.push(T[0][ti]); A.push(T[1][ti]); B.push(rings[1][sign > 0 ? i : N / 2 - i]);
+      }
+      const res = lens(S, A, B, { tA: 0.7, tB: 0.35, via: (name) => (name.startsWith('hip joint') ? 'B' : 'A') });
+      if (res && res.loop) loops.push({ name: 'groin ' + side, verts: res.loop, station: false, axis: -1 });
+    }
+    // Gluteal fold: a lens across the back of the thigh's first ring, under the buttock.
+    {
+      const qB = sign > 0 ? N / 2 : 0, kg = 2 * Math.floor(a / 2);
+      const qs = Array.from({ length: kg + 1 }, (_, i) => (qB - kg / 2 + i + N) % N);
+      const res = lens(qs.map((q) => rings[1][q]), qs.map((q) => rings[0][q]), qs.map((q) => rings[2][q]), { via: () => 'B' });
+      if (res && res.loop) loops.push({ name: 'gluteal fold ' + side, verts: res.loop, station: false, axis: -1 });
+    }
+    // Knee: as the elbow, a lens behind the knee for the crease (its short loop pair ends in 3/5
+    // pole pairs at the sides) with the bands leaning away behind to make room for it, and from
+    // N = 16 a second lens in front, round the kneecap. The knee ring goes round one side of one
+    // lens and the other side of the other, so its centre (the rig's knee) stays put.
+    const jK = legYs.findIndex((r) => r.name === 'knee' && r.station) + 1;
+    if (jK > 1 && jK + 1 < rings.length) {
+      const R0 = rings[jK - 1], R1 = rings[jK], R2 = rings[jK + 1], yK = ringY[jK];
+      for (const [R, yb] of [[R0, ringY[jK - 1]], [R2, ringY[jK + 1]]]) {
+        R.forEach((v, q) => { const y = yK + (yb - yK) * (1 + 0.6 * Math.max(0, back(q))); pos[3 * v + 1] = y; anchorVal[v] = y; });
+      }
+      const arc = (q0, kk) => Array.from({ length: kk + 1 }, (_, i) => (q0 - kk / 2 + i + N) % N);
+      const kc = 2 * Math.floor((3 * a) / 4), kp = 2 * Math.floor(a / 2);
+      const qsC = arc(sign > 0 ? N / 2 : 0, kc);
+      const crease = lens(qsC.map((q) => R1[q]), qsC.map((q) => R0[q]), qsC.map((q) => R2[q]), { via: () => 'A' });
+      if (crease && crease.loop) loops.push({ name: 'knee crease ' + side, verts: crease.loop, station: false, axis: -1 });
+      if (N / 2 - (kc / 2 + 1) - (kp / 2 + 1) >= 1) {
+        const qsP = arc(sign > 0 ? 0 : N / 2, kp);
+        const pat = lens(qsP.map((q) => R1[q]), qsP.map((q) => R0[q]), qsP.map((q) => R2[q]), { via: () => 'B' });
+        if (pat && pat.loop) loops.push({ name: 'patella ' + side, verts: pat.loop, station: false, axis: -1 });
+      }
+    }
     const last = rings[rings.length - 1];
     const sole = M.leg(sign, 0.004 * H, expX);
     cap(last, a / 2, [sole.cx, 0, sole.cz], [0, -1, 0], pbase + 2);
@@ -524,12 +733,16 @@ export function buildCage(M, P) {
   const aCounts = digits ? [k, k] : [k, k, P.handRings];
   const armXs = ringStations(aStops, aCounts, P.jointLoops, delta);
   if (digits && P.jointLoops) armXs.pop(); // keep the wrist ring itself as the last ring before the hand
+  // the deltoid: one more ring between the arm hole and the upper arm, round the shoulder joint
+  const xSide = M.trunk((W.armpit + W.shoulder) / 2).rx;
+  const xDelt = Math.min(0.5 * (xSide + armXs[0].v), armXs[0].v - 0.004 * H);
+  armXs.unshift({ v: xDelt, name: 'deltoid' });
   for (const sign of [1, -1]) {
     const side = sign > 0 ? 'L' : 'R';
     const pbase = sign > 0 ? 5 : 8;
     const rings = [sign > 0 ? hole(cL0, cL1) : hole(cR0, cR1)];
     const ringX = [W.shoulderX];
-    for (const { v: x } of armXs) {
+    for (const { v: x, name } of armXs) {
       const sec = M.arm(sign, x);
       const r = (sec.ry + sec.rz) / 2;
       const ring = [];
@@ -537,7 +750,10 @@ export function buildCage(M, P) {
         const w = (2 * Math.PI * (q - a / 2)) / N;
         const y = sec.cy - s0 * sec.ry * Math.cos(w);
         const z = sec.cz - sign * s0 * sec.rz * Math.sin(w);
-        ring.push(addV(sign * x, y, z, 0, sign * x, rho(sec.rz, sec.ry, w, r)));
+        // the deltoid ring leans in at the top: over the shoulder it sits near the neck, under the
+        // arm out in the armpit, as the cap of the deltoid does
+        const xq = name === 'deltoid' ? x + 0.4 * s0 * sec.ry * Math.cos(w) : x;
+        ring.push(addV(sign * xq, y, z, 0, sign * xq, rho(sec.rz, sec.ry, w, r)));
       }
       rings.push(ring);
       ringX.push(x);
@@ -550,7 +766,69 @@ export function buildCage(M, P) {
         quad(rings[j][q], rings[j][q2], rings[j + 1][q2], rings[j + 1][q], part);
       }
     }
-    armXs.forEach((r, j) => loops.push({ name: (r.name || 'arm ' + j) + ' ' + side, verts: rings[j + 1].slice(), station: !!r.station, axis: 0 }));
+    // (unnamed rings keep the numbers they had before the deltoid ring came first)
+    armXs.forEach((r, j) => loops.push({ name: (r.name || 'arm ' + (j - 1)) + ' ' + side, verts: rings[j + 1].slice(), station: !!r.station, axis: 0 }));
+    loops.push({ name: 'armpit ' + side, verts: rings[0].slice(), station: false, axis: -1 });
+    // Armpit: the arm hole's two lower corners are 5-poles right where the arm folds against the
+    // chest. A lens along the bottom of the hole moves each one step up and out, onto the chest in
+    // front (below the collarbone) and the shoulder blade behind. Afterwards the loop round the arm
+    // root runs under the arm on the arm's side of the fold (the 'armpit' loop above), the chest ring
+    // above the armpit dips under the arm through the old corners (the pectoral and shoulder-blade
+    // line), and the armpit ring runs under the arm a little lower. At N = 8 both front corners would
+    // move onto the same vertex of the centre line (a 6-pole), so the hole keeps its corners there.
+    if (a >= 4) {
+      const c0 = sign > 0 ? cL0 : cR0;
+      const S = [], A = [], B = [];
+      for (let i = 0; i <= a; i++) { S.push(T[jA][c0 + i]); A.push(rings[1][i]); B.push(T[jA - 1][c0 + i]); }
+      // the armpit ring now runs under the arm a quarter of the way down the flank
+      const res = lens(S, A, B, { tB: 0.25 });
+      // the new loop on the arm's side is held at the armpit's height, like the ring it came from
+      // (left free, pressure sags it into a pouch below the arm)
+      if (res) res.mA.forEach((v) => { anchorAxis[v] = 1; anchorVal[v] = W.armpit; });
+    }
+    // The shoulder girdle's regions, as loops along lines the cage already has (from N = 16 there
+    // are only two columns between the breastbone and the arm hole: no room for insets of their
+    // own, whose corners would land on the poles moved above or on the centre line):
+    //  - pectoral: the chest ring above the armpit (which now dips under the arm), up the front of
+    //    the arm hole (the deltopectoral line), back along the collarbone, down the breastbone
+    //  - scapula: the same behind: that ring, up the back of the arm hole, along the shoulder ring
+    //    over the shoulder blade, down the spine
+    //  - clavicle: the band along the collarbone, from the breastbone to the top of the arm hole
+    {
+      const cF = sign > 0 ? cL0 : cR1, cB = sign > 0 ? cL1 : cR0, jS = jA + a;
+      const along = (j, i0, i1) => { const out = [], st = i1 >= i0 ? 1 : -1; for (let i = i0; i !== i1 + st; i += st) out.push(T[j][(i + N) % N]); return out; };
+      const col = (i, j0, j1) => { const out = []; for (let j = j0; j0 <= j1 ? j <= j1 : j >= j1; j += j0 <= j1 ? 1 : -1) out.push(T[j][(i + N) % N]); return out; };
+      const iF0 = sign > 0 ? 0 : N, iB0 = N / 2; // the centre lines, front and back
+      // round the block of rings jLo..jHi between the centre line iMid and the arm hole's side iArm
+      const region = (name, jLo, jHi, iMid, iArm) => loops.push({ name: name + ' ' + side, station: false, axis: -1,
+        verts: [...along(jLo, iMid, iArm), ...col(iArm, jLo + 1, jHi), ...along(jHi, iArm - Math.sign(iArm - iMid), iMid), ...(jHi - 1 > jLo ? col(iMid, jHi - 1, jLo + 1) : [])] });
+      region('pectoral', jA + 1, jS, iF0, cF);
+      region('scapula', jA + 1, jS, iB0, cB);
+      region('clavicle', jS, jS + 1, iF0, cF);
+    }
+    // Elbow: a lens on the inside of the joint adds the crease's short loop pair, ending in a 3/5
+    // pole pair at each side, so the inside can fold while the outside keeps its volume. The bands
+    // either side lean away from the joint on the inside (up to 1.6 times as far), making room for
+    // the pair: with them left level, or closer on the inside, the crease quads get so small that
+    // bending squashes them flat (bend test at 120 degrees).
+    // (Without the lens the elbow's inside turns over: 12 quads at 120 degrees, none with it.)
+    const jE = armXs.findIndex((r) => r.name === 'elbow' && r.station) + 1;
+    if (jE > 1 && jE + 1 < rings.length) {
+      const R0 = rings[jE - 1], R1 = rings[jE], R2 = rings[jE + 1];
+      const xE = ringX[jE];
+      for (const [R, xb] of [[R0, ringX[jE - 1]], [R2, ringX[jE + 1]]]) {
+        R.forEach((v, q) => {
+          const w = (2 * Math.PI * (q - a / 2)) / N;
+          const inner = -sign * Math.sin(w); // 1 on the inside of the elbow (the front, toward +z)
+          const x = xE + (xb - xE) * (1 + 0.6 * Math.max(0, inner));
+          pos[3 * v] = sign * x; anchorVal[v] = sign * x;
+        });
+      }
+      const qF = sign > 0 ? N - a / 2 : (3 * a) / 2, kc = 2 * Math.floor((3 * a) / 4);
+      const qs = Array.from({ length: kc + 1 }, (_, i) => (qF - kc / 2 + i + N) % N);
+      const res = lens(qs.map((q) => R1[q]), qs.map((q) => R0[q]), qs.map((q) => R2[q]));
+      if (res && res.loop) loops.push({ name: 'elbow crease ' + side, verts: res.loop, station: false, axis: -1 });
+    }
     if (digits) buildHand(sign, rings[rings.length - 1], ringX[ringX.length - 1], pbase + 2, side);
     else {
       const tip = M.arm(sign, W.tipX);
@@ -648,9 +926,14 @@ export function buildCage(M, P) {
       const tip = [sign * (Math.abs(bc[0]) + len), bc[1], bc[2] + SPREAD[f] * L];
       const hand = M.arm(sign, Math.abs(bc[0]));
       const th = Math.min(hand.ry * 0.85, wr * 0.95);
-      const fp = pathBetween(bc, tip, nF + 1, (u) => th * (1 - 0.3 * u), (u) => wr * (1 - 0.25 * u), 0.12, 0.88).slice(0, nF);
+      const fts = knuckleRings(nF, [0.45, 0.75], 0.28);
+      const fp = pathAt(bc, tip, fts.map((k) => k.t), (u) => th * (1 - 0.3 * u), (u) => wr * (1 - 0.25 * u));
       const fr = tubeFromLoop(Lp, fp, part, { axis: 0, tip });
-      fr.forEach((r, i) => loops.push({ name: ['index', 'middle', 'ring', 'little'][f] + ' ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: 0 }));
+      const fname = ['index', 'middle', 'ring', 'little'][f];
+      fr.forEach((r, i) => loops.push({ name: fname + ' ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: 0 }));
+      // the knuckles: the finger's root loop at the big knuckle, then the rings on the two joints
+      loops.push({ name: `knuckle ${fname} 1 ${side}`, verts: Lp.slice(), station: false, axis: -1 });
+      fts.forEach((k, i) => { if (k.joint) loops.push({ name: `knuckle ${fname} ${k.joint + 1} ${side}`, verts: fr[i].slice(), station: false, axis: -1 }); });
     }
     // thumb: forward, outward and a little toward the palm
     const tl = holeLoop(K, 0, thumbC0, mm, n12);
@@ -660,9 +943,13 @@ export function buildCage(M, P) {
     const tlen = 0.42 * L;
     const ttip = [tc[0] + (tdir[0] / tn) * tlen, tc[1] + (tdir[1] / tn) * tlen, tc[2] + (tdir[2] / tn) * tlen];
     const tw = 0.06 * L;
-    const tp = pathBetween(tc, ttip, nF + 1, (u) => tw * (1 - 0.25 * u), (u) => tw * 1.1 * (1 - 0.2 * u), 0.15, 0.88).slice(0, nF);
+    const tts = knuckleRings(nF, [0.25, 0.62], 0.44);
+    const tp = pathAt(tc, ttip, tts.map((k) => k.t), (u) => tw * (1 - 0.25 * u), (u) => tw * 1.1 * (1 - 0.2 * u));
     const trs = tubeFromLoop(tl, tp, part, { axis: -1, tip: ttip, up: [0, 1, 0] });
     trs.forEach((r, i) => loops.push({ name: 'thumb ' + (i + 1) + ' ' + side, verts: r.slice(), station: i > 0, axis: -1 }));
+    // the thumb's root loop in the palm, then its two joints
+    loops.push({ name: 'knuckle thumb 1 ' + side, verts: tl.slice(), station: false, axis: -1 });
+    tts.forEach((k, i) => { if (k.joint) loops.push({ name: `knuckle thumb ${k.joint + 1} ${side}`, verts: trs[i].slice(), station: false, axis: -1 }); });
   }
 
   // ---------------- compact, orient ----------------
