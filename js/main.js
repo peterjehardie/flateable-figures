@@ -14,8 +14,9 @@ import { buildFace } from './face.js';
 import { buildDigits } from './digits.js';
 import { mirrorStroke, mirrorPts, symmetrizeFront } from './symmetry.js';
 import { initRigPanel } from './rigpanel.js';
+import { tagAnatomy } from './anatomy.js';
 import { toOBJ, tagsJSON, makeZip, saveFile } from './exporter.js';
-import { bboxOf, parseColor, colorName, toHex } from './util.js';
+import { bboxOf, parseColor, colorName, toHex, simplify, polyLength } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '–');
@@ -25,7 +26,7 @@ const app = {
   masks: null, maskImgs: null, frame: null, model: null, sim: null, fit: null, tagGroups: {}, pulledLoops: [],
   params: { N: 16, rings: 2, headRings: 2, handRings: 1, footRings: 2, jointLoops: true, shrink: 0.5, level: 1, digits: true, fingerRings: 3, toeRings: 1, face: true, faceRefine: true },
   prm: { pressure: 1, tension: 0.5, relax: 0.3, anchor: 0.15, constrain: true, symmetry: true, armDepth: 1, profile: 2.2, faceDetail: true },
-  layer: 'line', backView: false, mirrorDraw: true,
+  layer: 'line', faceMode: 'split', mirrorDraw: true,
   steps: 6, running: false, settled: false, gapFrac: 0.012, pinsOn: true,
   selected: null, selectedLandmark: null, penColor: '#1b1f27', paintMode: false, paintErase: false, paintGroup: null, brushPx: 22,
   shading: 'clay', css: {}, bgImage: null,
@@ -90,6 +91,8 @@ function rebuildModel() {
   app.settled = false;
   app.stillFrames = 0;
   if (app.rigPanel) app.rigPanel.onModel();
+  app.anat = null;
+  try { refreshAnatomy(false); } catch (e) { console.warn('anatomy', e); }
   setRunning(false);
   updateTags();
   updatePins();
@@ -189,6 +192,10 @@ function applyShading() {
       else if (v === 5) cols.set([0.9, 0.45, 0.15], 3 * i);
       else if (v !== 4) cols.set([0.85, 0.2, 0.6], 3 * i);
     }
+  } else if (app.shading === 'anatomy') {
+    if (!app.anat) refreshAnatomy(false);
+    const A = app.anat, Q = sim.mesh.quads;
+    if (A) for (let f = 0; f < Q.length / 4; f++) { const c = A.regions[A.face[f]].color; for (let k = 0; k < 4; k++) cols.set(c, 3 * Q[4 * f + k]); }
   }
   app.v3.setColors(cols);
 }
@@ -206,13 +213,13 @@ function loop(t) {
     if (sim.detail) {
       // detail pass on the face: judged on the head only, with a cap
       const d = sim.detail;
-      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); if (app.rigPanel) app.rigPanel.onSettled(); } }
+      if ((sim.lastMove < 8e-6 && d.iter > 150) || d.iter > 900) { if (++app.stillFrames > 20 || d.iter > 900) { app.settled = true; refreshFit(); setRunning(false); toast('Face, hands and feet refined'); refreshAnatomy(); if (app.rigPanel) app.rigPanel.onSettled(); } }
       else app.stillFrames = 0;
     } else if (sim.lastMove < 2.5e-5 && sim.iter > 60) {
       if (++app.stillFrames > 30) {
         app.stillFrames = 0;
         if (app.prm.faceDetail && (app.face || app.digits)) { sim.startDetail(app.face, app.digits); goStep('refine', 'inflate'); toast('Body settled: now working the face, hands and feet in finer steps'); }
-        else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); if (app.rigPanel) app.rigPanel.onSettled(); }
+        else { app.settled = true; refreshFit(); setRunning(false); toast('Inflated: the balloon has settled'); refreshAnatomy(); if (app.rigPanel) app.rigPanel.onSettled(); }
       }
     } else app.stillFrames = 0;
     if (t - lastFit > 450) { lastFit = t; refreshFit(); }
@@ -277,7 +284,38 @@ app.deletePath = (p) => {
   renderSelCard();
   scheduleFull();
 };
-app.addPath = (pts, closed) => {
+// Eraser: cut out the part of a stroke within r of (cx, cy); what is left stays as open strokes.
+// A mirrored twin loses the mirrored part.
+app.erasePart = (p, cx, cy, r, noTwin) => {
+  const doc = app.doc;
+  const src = p.closed ? [...p.pts, p.pts[0]] : p.pts;
+  const dense = [];
+  for (let i = 0; i < src.length - 1; i++) {
+    const [x0, y0] = src[i], [x1, y1] = src[i + 1];
+    const k = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (r / 3)));
+    for (let j = 0; j < k; j++) dense.push([x0 + ((x1 - x0) * j) / k, y0 + ((y1 - y0) * j) / k]);
+  }
+  dense.push(src[src.length - 1]);
+  const keep = dense.map(([x, y]) => Math.hypot(x - cx, y - cy) > r);
+  if (keep.every(Boolean)) return false;
+  let runs = [], cur = [];
+  dense.forEach((q, i) => { if (keep[i]) cur.push(q); else if (cur.length) { runs.push(cur); cur = []; } });
+  if (cur.length) runs.push(cur);
+  // a closed stroke cut once is one open stroke, starting and ending at the cut
+  if (p.closed && runs.length > 1 && keep[0] && keep[keep.length - 1]) { const last = runs.pop(); runs[0] = [...last, ...runs[0]]; }
+  runs = runs.filter((q) => q.length > 1 && polyLength(q) > r * 0.5); // crumbs go
+  const twin = !noTwin && p.twin != null ? doc.paths.find((q) => q.id === p.twin) : null;
+  doc.paths = doc.paths.filter((q) => q !== p);
+  for (const q of runs) {
+    const np = newPath(simplify(q, r / 12), { closed: false, color: p.color, role: p.role, group: p.group, view: p.view, part: p.part, side: p.side });
+    doc.paths.push(np);
+  }
+  if (twin) app.erasePart(twin, 2 * doc.views.front.axis - cx, cy, r, true);
+  if (app.selected === p) app.selected = null;
+  return true;
+};
+app.eraseDone = () => { renderSelCard(); scheduleFull(10); };
+app.addPath = (pts, closed, meta = {}) => {
   const doc = app.doc;
   const bb = bboxOf(pts);
   const view = viewAtPoint(doc, (bb.x0 + bb.x1) / 2, (bb.y0 + bb.y1) / 2);
@@ -287,7 +325,7 @@ app.addPath = (pts, closed) => {
   if (layer === 'feature') {
     const o = penPathOpts(app.penColor);
     opts = o.role === 'feature' ? { ...o, color: app.penColor } : { role: 'feature', group: 'marks', color: '#b0587a' };
-    if (view === 'front' && app.backView) opts.side = 'far';
+    if (view === 'front' && meta.back) opts.side = 'far';
   } else opts = { role: layer, color: layer === 'line' ? '#1b1f27' : '#8a919c' };
   let twin = null;
   if (app.mirrorDraw && view === 'front' && layer !== 'note') {
@@ -695,6 +733,22 @@ function setPaint(on) {
   if (on && app.shading !== 'tags') setShading('tags');
 }
 
+// Anatomy: labels on quads and loops, and the coverage report in the Refine step
+function refreshAnatomy(render = true) {
+  if (!app.sim || !app.model) return;
+  app.anat = tagAnatomy(app.model, app.sim);
+  const A = app.anat, cv = A.coverage;
+  const mark = { yes: '●', part: '◐', no: '○' };
+  $('anat-score').innerHTML = `<span>coverage</span><b>${Math.round(100 * cv.score)}%</b><span>regions</span><b>${A.regions.length}</b><span>loops with an anatomical role</span><b>${A.loops.filter((l) => !/^plain ring/.test(l.anatomy)).length} of ${A.loops.length}</b>`;
+  let area = '';
+  $('anat-items').innerHTML = cv.items.map((it) => {
+    const head = it.area !== area ? `<div class="anat-area">${(area = it.area)}</div>` : '';
+    return `${head}<div class="anat-item ${it.status}" title="${it.note || ''}"><span class="anat-mark">${mark[it.status]}</span><span>${it.label}${it.note ? `<small>${it.note}</small>` : ''}</span></div>`;
+  }).join('') + (cv.thin.length ? `<p class="hint">Few quads for their size (below 0.8× the body's average): <b>${cv.thin.join(', ')}</b></p>` : '');
+  $('anat-regions').innerHTML = '<span><b>region</b></span><span><b>quads</b></span><span><b>density</b></span>' + A.regions.map((r) => `<span><i class="anat-sw" style="background:rgb(${r.color.map((c) => Math.round(255 * c)).join(',')})"></i>${r.name}</span><span>${r.quads}</span><span class="${r.density < 0.8 ? 'low' : ''}">${r.density.toFixed(2)}×</span>`).join('');
+  if (render && app.shading === 'anatomy') applyShading();
+}
+app.refreshAnatomy = refreshAnatomy;
 function setShading(s) {
   app.shading = s;
   for (const b of $('shading').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.shade === s));
@@ -773,11 +827,19 @@ function bindControls() {
   // layers, front / back, mirror drawing
   const setLayer = (l) => { app.layer = l; for (const b of $('layers2d').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.layer === l)); app.selected = null; renderSelCard(); app.v2.dirty = true; };
   $('layers2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setLayer(b.dataset.layer); };
-  const setBack = (on) => { app.backView = on; for (const b of $('face2d').querySelectorAll('button')) b.setAttribute('aria-pressed', String((b.dataset.face === 'back') === on)); app.selected = null; renderSelCard(); app.v2.dirty = true; };
-  $('face2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setBack(b.dataset.face === 'back'); };
+  const setFace = (m) => { app.faceMode = m; for (const b of $('face2d').querySelectorAll('button')) b.setAttribute('aria-pressed', String(b.dataset.face === m)); app.selected = null; renderSelCard(); app.v2.dirty = true; };
+  $('face2d').onclick = (e) => { const b = e.target.closest('button'); if (b) setFace(b.dataset.face); };
   $('mirror-draw').onchange = (e) => { app.mirrorDraw = e.target.checked; };
   const symm = (sgn) => { const n = symmetrizeFront(app.doc, sgn, newPath); app.selected = null; renderSelCard(); scheduleFull(10); toast(`Front view made symmetric (${n} strokes mirrored)`); };
   $('btn-sym-left').onclick = () => symm(-1);
+  $('btn-anat-shade').onclick = () => { refreshAnatomy(false); setShading('anatomy'); };
+  // name the region under the pointer when colouring by anatomy
+  $('c3d').addEventListener('pointermove', (e) => {
+    if (app.shading !== 'anatomy' || !app.anat || e.buttons) return;
+    const hit = app.v3.pick(e);
+    const A = app.anat;
+    $('note3d').textContent = hit && hit.quad >= 0 && hit.quad < A.face.length ? A.regions[A.face[hit.quad]].name : '';
+  });
   $('btn-sym-right').onclick = () => symm(1);
   // 3D
   document.querySelectorAll('[data-cam]').forEach((b) => (b.onclick = () => app.v3.preset(b.dataset.cam)));
@@ -829,6 +891,7 @@ function bindControls() {
     const files = [
       { name: 'figure.obj', data: toOBJ(app.sim, level) },
       { name: 'figure-tags.json', data: tagsJSON(app.sim, level, app.tagGroups, app.sim.mesh.loops) },
+      ...(app.anat && level === app.sim.mesh.levels.length - 1 ? [{ name: 'figure-anatomy.json', data: JSON.stringify({ level, regions: app.anat.regions.map((r, i) => ({ name: r.name, quads: [...app.anat.face].map((k, f) => (k === i ? f : -1)).filter((f) => f >= 0) })), loops: app.anat.loops, coverage: app.anat.coverage }, null, 1) }] : []),
       { name: 'figure-project.svg', data: projectSVG() },
     ];
     try { const r = await saveFile('flateable-figure.zip', makeZip(files)); if (r === 'saved') toast('Exported OBJ, tags and project'); }

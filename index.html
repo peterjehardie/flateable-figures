@@ -122,6 +122,17 @@ details.adv { border-top: 1px solid var(--line); padding-top: 10px; }
 details.adv > summary { cursor: pointer; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 500; }
 details.adv[open] > summary { color: var(--ink); }
 .adv-body { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; }
+.anat-items { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+.anat-area { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
+.anat-item { display: grid; grid-template-columns: 16px 1fr; gap: 4px; align-items: baseline; }
+.anat-item small { display: block; color: var(--muted); font-size: 11px; }
+.anat-mark { color: var(--muted); }
+.anat-item.yes .anat-mark { color: var(--accent); }
+.anat-item.part .anat-mark { color: var(--select); }
+.anat-item.no .anat-mark { color: var(--over); }
+.anat-regions { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 10px; font: 11.5px var(--mono); max-height: 320px; overflow: auto; }
+.anat-regions .low { color: var(--over); }
+.anat-sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
 .next { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .next .btn.primary:only-child { margin-left: auto; }
 .btn.big { padding: 7px 18px; font-weight: 500; }
@@ -186,8 +197,8 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <button data-layer="line" aria-pressed="true" title="Outline: the silhouette the figure fills">Outline</button><button data-layer="feature" aria-pressed="false" title="Features: eyes, mouth, muscle lines, marks">Features</button><button data-layer="note" aria-pressed="false" title="Notes: construction lines, ignored by the model">Notes</button>
         </div>
         <input type="color" class="swatch-in" id="pen-color" value="#1b1f27" title="Pen colour: strokes of one colour on the Features layer form one group" aria-label="Pen colour">
-        <div class="seg" id="face2d" role="group" aria-label="Front or back">
-          <button data-face="front" aria-pressed="true" title="Front: features on the front of the body">Front</button><button data-face="back" aria-pressed="false" title="Back: the same outline seen from behind; features go on the back of the body">Back</button>
+        <div class="seg" id="face2d" role="group" aria-label="Front view layout">
+          <button data-face="split" aria-pressed="true" title="Split: front of the body on the right half, back (seen from behind) on the left; features drawn on the left half go on the back">Split</button><button data-face="front" aria-pressed="false" title="Whole front: for features that differ left and right">Front</button><button data-face="back" aria-pressed="false" title="Whole back, seen from behind: features go on the back of the body">Back</button>
         </div>
         <label class="toggle" title="A stroke on one side of the centre line gets a mirrored twin; half an outline from the centre line closes itself"><input type="checkbox" id="mirror-draw" checked>mirror</label>
         <div class="spacer"></div>
@@ -224,7 +235,7 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <summary class="btn">View</summary>
           <div class="menu-body">
             <div class="seg" id="shading" role="group" aria-label="Shading">
-              <button data-shade="clay" aria-pressed="true">Clay</button><button data-shade="parts" aria-pressed="false">Parts</button><button data-shade="tags" aria-pressed="false">Groups</button><button data-shade="poles" aria-pressed="false">Poles</button>
+              <button data-shade="clay" aria-pressed="true">Clay</button><button data-shade="parts" aria-pressed="false">Parts</button><button data-shade="tags" aria-pressed="false">Groups</button><button data-shade="poles" aria-pressed="false">Poles</button><button data-shade="anatomy" aria-pressed="false">Anatomy</button>
             </div>
             <label class="toggle"><input type="checkbox" id="ortho">flat (no perspective)</label>
             <label class="toggle"><input type="checkbox" data-show3d="wire" checked>quads</label>
@@ -354,6 +365,20 @@ kbd { font: 11px var(--mono); border: 1px solid var(--line); border-bottom-width
           <label class="toggle"><input type="checkbox" id="faceRefine" checked>twice as many quads inside the face loop</label>
           <p class="hint">The face takes its shape from the Features layer: eyes, brows, nose base and mouth drawn in the front view, matched by height to the same features in the side view. Each finger and toe follows its own shape in the top view.</p>
         </div>
+        <div class="group">
+          <h3>Anatomy coverage</h3>
+          <p class="hint">Every quad is labelled with the body region it stands for, and every loop with the anatomical line it follows. The list checks the loops a character needs to bend and make expressions: ● there, ◐ partly, ○ missing.</p>
+          <div class="stats" id="anat-score"></div>
+          <div class="anat-items" id="anat-items"></div>
+          <div class="btn-row"><button class="btn" id="btn-anat-shade">Colour by anatomy</button></div>
+        </div>
+        <details class="adv">
+          <summary>Regions and density</summary>
+          <div class="adv-body">
+            <p class="hint">Density is quads per area against the body's average: below 0.8× means few quads for the size.</p>
+            <div class="anat-regions" id="anat-regions"></div>
+          </div>
+        </details>
         <div class="group">
           <h3>Feature groups</h3>
           <p class="hint">Strokes of one colour on the Features layer form a group, marked on the surface facing their view. A group can make that area puff out or flatten, or pull the nearest ring onto its line.</p>

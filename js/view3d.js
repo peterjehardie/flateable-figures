@@ -152,7 +152,7 @@ export class View3D {
     const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera());
     const hit = this.raycaster.intersectObject(this.mesh, false)[0];
-    return hit ? { point: hit.point, ndc } : null;
+    return hit ? { point: hit.point, ndc, quad: hit.faceIndex != null ? Math.floor(hit.faceIndex / 2) : -1 } : null;
   }
 
   worldRadius(point, px) {

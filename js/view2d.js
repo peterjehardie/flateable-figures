@@ -8,6 +8,7 @@ import { newPath, isNearlyClosed, viewAtPoint } from './doc.js';
 import { PARTS } from './cage.js';
 
 const HIT = 7;
+const ERASE_PX = 9; // eraser radius on screen
 
 export class View2D {
   constructor(canvas, app) {
@@ -48,17 +49,35 @@ export class View2D {
   toScreen(x, y) { return [(x - this.view.ox) * this.view.s, (y - this.view.oy) * this.view.s]; }
   toDoc(sx, sy) { return [sx / this.view.s + this.view.ox, sy / this.view.s + this.view.oy]; }
   evDoc(e) { const r = this.canvas.getBoundingClientRect(); return this.unmirror(...this.toDoc(e.clientX - r.left, e.clientY - r.top)); }
-  // Back view: the front panel is shown as seen from behind (mirrored about the front centre line).
-  // Points are stored as in the front view, so the outline is shared.
-  isBack() { return !!this.app.backView; }
-  unmirror(x, y) {
-    if (!this.isBack() || viewAtPoint(this.app.doc, x, y) !== 'front') return [x, y];
-    return [2 * this.app.doc.views.front.axis - x, y];
+  // Front panel modes. 'split': the page right of the centre line is the front of the body, the
+  // page left is the back seen from behind (both show the figure's own left side, +x; the outline
+  // is symmetric). 'front' and 'back': the whole figure from one side, for features that differ
+  // left and right. Strokes are always stored as in the front view, so the outline is shared.
+  mode() { return this.app.faceMode || 'split'; }
+  isBack() { return this.mode() === 'back'; }
+  // does this point of the page (as displayed) show the back of the body?
+  backAt(x, y) {
+    if (viewAtPoint(this.app.doc, x, y) !== 'front') return false;
+    const m = this.mode();
+    return m === 'back' || (m === 'split' && (this.app.layer || 'line') === 'feature' && x < this.app.doc.views.front.axis);
   }
+  unmirror(x, y) { return this.backAt(x, y) ? [2 * this.app.doc.views.front.axis - x, y] : [x, y]; }
   mirrorCtx(ctx) { const ax = this.app.doc.views.front.axis; ctx.translate(2 * ax, 0); ctx.scale(-1, 1); }
-  // which layer a stroke belongs to, and whether it can be picked right now
+  // which layer a stroke belongs to
   static layerOf(p) { return p.role === 'feature' ? 'feature' : p.role === 'line' || p.role === 'section' ? 'line' : 'note'; }
-  onFace(p) { return !(p.view === 'front' && p.role === 'feature') || (p.side === 'far') === this.isBack(); }
+  // how a stroke shows in the current mode: hidden, mirrored (back), faint (other side's features)
+  look(p) {
+    if (p.view !== 'front') return { show: true, mir: false, faint: false };
+    const m = this.mode(), feat = p.role === 'feature', far = feat && p.side === 'far';
+    if (m === 'front') return { show: true, mir: false, faint: far };
+    if (m === 'back') return { show: true, mir: true, faint: feat && !far };
+    if (!feat) return { show: true, mir: false, faint: false };
+    let mx = 0;
+    for (const q of p.pts) mx += q[0];
+    if (mx / p.pts.length < this.app.doc.views.front.axis) return { show: false };
+    return { show: true, mir: far, faint: false };
+  }
+  onFace(p) { const l = this.look(p); return l.show && !l.faint; }
   pickable(p) { return View2D.layerOf(p) === (this.app.layer || 'line') && this.onFace(p) && !(p.role === 'axis' || p.role === 'guide'); }
   viewAt(x, y) { return viewAtPoint(this.app.doc, x, y); }
 
@@ -121,6 +140,19 @@ export class View2D {
     return best;
   }
 
+  // rub out the part of every pickable stroke under the eraser (stored coordinates)
+  eraseAt(x, y) {
+    const r = ERASE_PX / this.view.s;
+    for (const p of [...this.app.doc.paths]) {
+      if (!this.pickable(p)) continue;
+      const bb = bboxOf(p.pts);
+      if (x < bb.x0 - r || x > bb.x1 + r || y < bb.y0 - r || y > bb.y1 + r) continue;
+      if (distToPolyline(x, y, p.pts, p.closed) > r) continue;
+      if (this.app.erasePart(p, x, y, r) && this.drag) this.drag.any = true;
+    }
+    this.dirty = true;
+  }
+
   hitLandmark(x, y) {
     const tol = (HIT + 3) / this.view.s;
     for (const l of this.app.doc.landmarks) for (const k of ['front', 'side']) {
@@ -151,8 +183,8 @@ export class View2D {
       if (pointers.size === 2) { this.drag = { kind: 'pinch', d: this.pinchDist(pointers) }; return; }
       const [x, y] = this.evDoc(e);
       if (e.button === 1 || e.button === 2 || this.spaceDown) { this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, ox: this.view.ox, oy: this.view.oy }; return; }
-      if (this.tool === 'pen') { this.drag = { kind: 'pen', pts: [[x, y]] }; return; }
-      if (this.tool === 'erase') { const p = this.hitPath(x, y); if (p) this.app.deletePath(p); return; }
+      if (this.tool === 'pen') { const r = c.getBoundingClientRect(); const [dx, dy] = this.toDoc(e.clientX - r.left, e.clientY - r.top); this.drag = { kind: 'pen', pts: [[x, y]], back: this.backAt(dx, dy) }; return; }
+      if (this.tool === 'erase') { this.drag = { kind: 'erase', any: false }; this.eraseAt(x, y); return; }
       if (this.tool === 'fill') { this.app.fillAt(this.viewAt(x, y), [x, y]); return; }
       if (this.tool === 'landmark') {
         const hl = this.hitLandmark(x, y);
@@ -172,6 +204,7 @@ export class View2D {
     c.addEventListener('pointermove', (e) => {
       if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const [x, y] = this.evDoc(e);
+      { const r = c.getBoundingClientRect(); this.mouseDoc = this.toDoc(e.clientX - r.left, e.clientY - r.top); if (this.tool === 'erase') this.dirty = true; }
       this.cursor = { x, y, view: this.viewAt(x, y) };
       this.app.onCursor(this.cursor);
       const d = this.drag;
@@ -187,6 +220,8 @@ export class View2D {
       } else if (d && d.kind === 'pan') {
         this.view.ox = d.ox - (e.clientX - d.sx) / this.view.s;
         this.view.oy = d.oy - (e.clientY - d.sy) / this.view.s;
+      } else if (d && d.kind === 'erase') {
+        this.eraseAt(x, y);
       } else if (d && d.kind === 'pen') {
         const last = d.pts[d.pts.length - 1];
         if (Math.hypot(x - last[0], y - last[1]) > 1.5 / this.view.s) d.pts.push([x, y]);
@@ -209,8 +244,9 @@ export class View2D {
       if (d && d.kind === 'pen' && d.pts.length > 1) {
         const pts = simplify(d.pts, 0.6 / this.view.s);
         const closed = isNearlyClosed(pts);
-        this.app.addPath(pts, closed);
+        this.app.addPath(pts, closed, { back: d.back });
       }
+      if (d && d.kind === 'erase' && d.any) this.app.eraseDone();
       if (d && d.kind === 'handle') this.app.dragHandleEnd(d.h);
       if (d && d.kind === 'lm') this.app.landmarksChanged(true);
       this.dirty = true;
@@ -273,11 +309,12 @@ export class View2D {
     if (fr && app.sim && this.show.parts) this.drawPartBoxes(ctx, px);
     // paths
     ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    const back = this.isBack();
     for (const p of doc.paths) {
       if (p.role === 'feature' && this.show.features === false) continue;
+      const look = this.look(p);
+      if (!look.show) continue;
       const sel = p === app.selected, hov = p === this.hover;
-      const mir = back && p.view === 'front';
+      const mir = look.mir;
       if (mir) { ctx.save(); this.mirrorCtx(ctx); }
       ctx.beginPath();
       p.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
@@ -291,7 +328,7 @@ export class View2D {
       if (p.role === 'feature' && doc.groups[p.group] && !doc.groups[p.group].visible) alpha = 0.25;
       // other layers dimmed; features of the other face (front or back) barely there
       if (View2D.layerOf(p) !== (app.layer || 'line') && p.role !== 'guide' && p.role !== 'axis') alpha *= 0.4;
-      if (!this.onFace(p)) alpha *= 0.3;
+      if (look.faint) alpha *= 0.3;
       if (sel || hov) {
         ctx.save(); ctx.strokeStyle = css.select; ctx.globalAlpha = sel ? 0.45 : 0.25; ctx.lineWidth = (w + 6) * px; ctx.stroke(); ctx.restore();
       }
@@ -306,24 +343,29 @@ export class View2D {
     }
     // pen preview (stored as in the front view, so mirrored back for display)
     if (this.drag && this.drag.kind === 'pen') {
-      const d0 = this.drag.pts[0];
-      const mir = back && viewAtPoint(doc, d0[0], d0[1]) === 'front';
+      const mir = !!this.drag.back;
       if (mir) { ctx.save(); this.mirrorCtx(ctx); }
       ctx.beginPath();
       this.drag.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
       ctx.strokeStyle = app.penColor; ctx.lineWidth = 1.8 * px; ctx.stroke();
       if (mir) ctx.restore();
     }
-    if (back && app.frame) {
+    if (app.frame) {
       ctx.fillStyle = css.accent;
-      ctx.font = `600 ${12 * px}px "IBM Plex Mono", ui-monospace, monospace`;
-      const ax = doc.views.front.axis, top = doc.views.front.top;
-      ctx.textAlign = 'center';
-      ctx.fillText('BACK · seen from behind', ax, top - 14 * px);
+      ctx.font = `600 ${11 * px}px "IBM Plex Mono", ui-monospace, monospace`;
+      const ax = doc.views.front.axis, top = doc.views.front.top, m = this.mode();
+      if (m === 'split') {
+        ctx.textAlign = 'right'; ctx.fillText('BACK (seen from behind)  ', ax, top - 14 * px);
+        ctx.textAlign = 'left'; ctx.fillText('  FRONT', ax, top - 14 * px);
+      } else { ctx.textAlign = 'center'; ctx.fillText(m === 'back' ? 'BACK · seen from behind' : 'FRONT', ax, top - 14 * px); }
       ctx.textAlign = 'left';
     }
     if (fr) this.drawGuides(ctx, px);
     this.drawLandmarks(ctx, px);
+    if (this.tool === 'erase' && this.mouseDoc) {
+      ctx.beginPath(); ctx.arc(this.mouseDoc[0], this.mouseDoc[1], ERASE_PX * px, 0, 2 * Math.PI);
+      ctx.strokeStyle = css.ink; ctx.globalAlpha = 0.6; ctx.lineWidth = px; ctx.stroke(); ctx.globalAlpha = 1;
+    }
     // cursor link
     if (fr && this.cursor) {
       const t = fr.tFromDoc(this.cursor.view, this.cursor.y);
@@ -447,9 +489,13 @@ export class View2D {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
-    for (const view of ['front', 'side']) {
-      const mir = view === 'front' && this.isBack(), fs = mir ? -1 : 1;
-      if (mir) { ctx.save(); this.mirrorCtx(ctx); }
+    const m = this.mode(), ax = app.doc.views.front.axis;
+    const passes = [['front', m === 'back', m === 'split' ? 1 : 0], ...(m === 'split' ? [['front', true, -1]] : []), ['side', false, 0]];
+    for (const [view, mir, clip] of passes) {
+      const fs = mir ? -1 : 1;
+      ctx.save();
+      if (clip) { ctx.beginPath(); ctx.rect(clip > 0 ? ax : ax - 1e5, -1e5, 1e5, 2e5); ctx.clip(); }
+      if (mir) this.mirrorCtx(ctx);
       ctx.strokeStyle = css.meshLine;
       ctx.globalAlpha = 0.55;
       ctx.beginPath();
@@ -479,7 +525,7 @@ export class View2D {
       }
       ctx.stroke();
       ctx.lineWidth = 0.9 * px;
-      if (mir) ctx.restore();
+      ctx.restore();
     }
     ctx.globalAlpha = 1;
   }
